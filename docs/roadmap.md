@@ -184,10 +184,26 @@ start from nothing:
   level oversight.
 - **Billing/subscriptions** (original plan Phase 14) — after core product validation, per the plan's
   own stated principle.
+- **High-volume "flash crowd" queuing** (e.g. concert-ticket-style access, 100k+ simultaneous joins)
+  — discussed 2026-09-27. A materially different problem from the walk-in/clinic use case the
+  current queue engine targets, not just "the same thing at bigger scale": at that concurrency, the
+  ticket-number allocator (`QueueTicketCounter`, a single Postgres row per queue/day) becomes a
+  serialization bottleneck — every request contends for the same row. The industry-standard answer
+  is a **virtual waiting room** in front of the real join flow (the Ticketmaster/Queue-it/Cloudflare
+  Waiting Room pattern): admit people via a very cheap, very fast counter (Redis `INCR`, built for
+  exactly this throughput — not Postgres row locking), show them a holding position, and trickle
+  admitted requests into the existing `join()` flow at a rate the backend can actually sustain. This
+  is Redis's strongest justification in the whole architecture — stronger than SSE fan-out or rate
+  limiting — but it's new infrastructure to build when actually prioritized, not something today's
+  MVP needs or should build speculatively. **One thing to keep true in the meantime**: the code/QR
+  resolver (Phase 4 onward) should stay a generic `code → context` lookup rather than assuming every
+  context always writes straight to Postgres synchronously, so this doesn't require ripping out the
+  resolver later — a constraint the Phase 4 design already satisfies, not a change to it.
 
 ---
 
 ## Count, for reference
 
-**13 phases in the active roadmap (0–12).** Phase 0 done, 12 remain. Plus 4 explicitly deferred
-workstreams (appointments, analytics trends, platform admin, billing) tracked but not scheduled.
+**13 phases in the active roadmap (0–12).** Phases 0–3 done, 9 remain. Plus 5 explicitly deferred
+workstreams (appointments, analytics trends, platform admin, billing, flash-crowd/waiting-room
+queuing) tracked but not scheduled.
