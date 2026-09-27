@@ -1,7 +1,7 @@
 # Project Status
 
 Last Updated: 2026-09-27
-Current Phase: Phase 0 — Repository and Architecture Skeleton
+Current Phase: Phase 1 — Tenant & Core Auth (see `docs/roadmap.md` — the authoritative 13-phase list, Phase 0 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -22,6 +22,10 @@ Current Task: See Next Task below
 - Scaffolded `apps/api` (NestJS + Prisma) and `apps/web` (Next.js) — see below for what's actually wired up vs. still a placeholder.
 - Scaffolded `packages/{types,validation,api-client,ui}` as empty buildable packages, ready for Phase 1 to fill in.
 - Wrote ADR-001 through ADR-010 under `docs/adr/` covering the major decisions from the plan review.
+- Wrote `docs/roadmap.md` — the finalized, authoritative 13-phase (0–12) list, merging the MVP cut
+  (D-02) and the customer-identity three-phase split (G-57) into one session-sized sequence. This
+  supersedes `docs/QueueFlow_Detailed_Plan.md` §88's original 15-phase numbering for tracking
+  purposes going forward.
 
 ## Decisions Made
 
@@ -36,13 +40,16 @@ See `docs/plan-review.md` for the full log (D-01 through D-16) and `docs/adr/` f
 
 ## Next Task
 
-**Phase 1 — Identity and Tenant**, per the plan's phase order (`docs/QueueFlow_Detailed_Plan.md` §88, Phase 1) and this repo's conventions (`AGENTS.md` §2):
+**Phase 1 — Tenant & Core Auth**, per `docs/roadmap.md` (the authoritative phase list — supersedes `docs/QueueFlow_Detailed_Plan.md` §88's numbering) and this repo's conventions (`AGENTS.md` §2):
 
-1. Prisma schema: `Tenant`, `TenantUser` (with role), `LoginCode` (mirroring budget-terry's shape — `codeHash`, `expiresAt`, `consumedAt`, `attempts`), `RefreshToken`, `DeviceTrust`.
+1. Prisma schema: `Tenant`, `TenantUser` (with role), `LoginCode` (mirroring budget-terry's shape — `codeHash`, `expiresAt`, `consumedAt`, `attempts`), `RefreshToken`.
 2. Business signup flow (G-01): business name + owner name + email → OTP verify → capability selection (`Queue`/`Appointment` toggles, `QR Management`/`Dashboard` always-on) → first-run setup wizard stub.
 3. Staff invite flow (G-02): owner invites by email → token + role + expiry → OTP → membership.
 4. Global `JwtAuthGuard` with `@Public()` opt-out — every route protected by default, matching budget-terry's ADR-011 pattern.
 5. Tenant context on the access token (G-03); tenant-selection step if a user has more than one membership.
-6. Trusted-device + per-staff-PIN mechanism for shared counter devices (D-03a) — reuse budget-terry's `docs/trusted-device-plan.md` shape for the device-trust token, PIN switching is new.
+
+Note: trusted-device + per-staff-PIN (D-03a, `DeviceTrust` model) is **not** part of this phase — it
+moved to Phase 5 (Staff Queue UI) in the finalized roadmap, since that's the first phase where a real
+shared counter device actually exists. Don't build it early.
 
 Acceptance: admin can sign up a business and log back in via OTP; a user can only access their own tenant's data; unauthorized tenant access is rejected with an explicit integration test; role permissions are tested.

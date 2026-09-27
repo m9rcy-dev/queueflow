@@ -11,11 +11,12 @@ Every session, in this order:
 
 1. Read `docs/QueueFlow_Detailed_Plan.md` (the product/architecture baseline) and `docs/QueueFlow_Visual_Prototype_and_Screen_Flows.md` (visual direction) — only the sections relevant to the task at hand; they're long, don't re-read cover to cover every session.
 2. Read `docs/plan-review.md` — this is the **living decisions log**. Every D-/G-/C- numbered item there overrides the plan document where they conflict; the plan is the frozen baseline, this file is what actually got decided. Check it before assuming a gap is still open.
-3. Read `PROJECT_STATUS.md` (current phase, current task, known issues).
-4. Read any ADRs under `docs/adr/` relevant to the task at hand.
-5. Inspect the existing implementation before writing new code — do not assume, check.
-6. Run `git status` to see what's already in flight.
-7. Run or inspect the current quality gate (`pnpm quality`).
+3. Read `docs/roadmap.md` — the **authoritative phase list**. It supersedes the plan document's own §88 phase numbering (that numbering predates the MVP cut and the customer-identity work). This is what "what phase are we on" actually means.
+4. Read `PROJECT_STATUS.md` (current phase, current task, known issues).
+5. Read any ADRs under `docs/adr/` relevant to the task at hand.
+6. Inspect the existing implementation before writing new code — do not assume, check.
+7. Run `git status` to see what's already in flight.
+8. Run or inspect the current quality gate (`pnpm quality`).
 
 Work only on the task listed under **Next Task** in `PROJECT_STATUS.md` unless there is a documented blocker. Do not rewrite working architecture without justification. Do not perform unrelated refactoring while completing a task.
 
