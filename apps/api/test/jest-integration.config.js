@@ -9,6 +9,6 @@ module.exports = {
   testEnvironment: "node",
   testRegex: "test/.*\\.integration-spec\\.ts$",
   transform: {
-    "^.+\\.(t|j)s$": "ts-jest",
+    "^.+\\.ts$": "ts-jest",
   },
 };

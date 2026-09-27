@@ -24,7 +24,6 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@nestjs/core",
-      "argon2",
       "@prisma/client",
       "@prisma/engines",
       "cpu-features",

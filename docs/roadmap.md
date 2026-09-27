@@ -23,13 +23,18 @@ pnpm workspace, NestJS + Prisma API skeleton, Next.js web skeleton, docker-compo
 
 ### Phase 1 — Tenant & Core Auth
 
+**Status: ✅ Done** (2026-09-27)
+
 Business signup (G-01: name/owner/email → OTP → capability selection → wizard stub), staff invite
 (G-02), global `JwtAuthGuard` + `@Public()`, tenant context on the access token + tenant-selector for
 multi-membership users (G-03), tenant isolation enforced in the query itself (ADR-003). Prisma:
-`Tenant`, `TenantUser`, `LoginCode`, `RefreshToken`.
+`Tenant`, `TenantUser`, `LoginCode`, `RefreshToken` (scoped by tenantId too, not just userId).
 
 **Acceptance:** a business can sign up and log back in via OTP; a user can only access their own
 tenant's data; unauthorized cross-tenant access is rejected with an explicit integration test.
+Verified: 29 unit tests + 7 Testcontainers integration tests (cross-tenant isolation, staff invite
+flow, refresh rotation), plus manual end-to-end verification against the real dev server. See
+`PROJECT_STATUS.md` Completed section for detail.
 
 ### Phase 2 — Locations & Services
 

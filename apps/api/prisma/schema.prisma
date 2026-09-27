@@ -1,10 +1,10 @@
 // QueueFlow — Prisma schema
 //
-// Phase 0 deliberately ships this near-empty: the point of Phase 0 is proving
-// the migration *framework* works (connect, generate, migrate), not defining
-// the domain. Phase 1 (Identity and Tenant) adds Tenant, TenantUser,
-// LoginCode, RefreshToken, DeviceTrust — see PROJECT_STATUS.md's Next Task
-// and ADR-003/ADR-004 for the shape those should take.
+// Phase 1 (Tenant & Core Auth, docs/roadmap.md) adds identity and
+// multi-tenancy. No passwords anywhere — auth is OTP-only (ADR-004).
+// Tenant isolation is enforced in application code (every query scoped by
+// tenantId from the access token, ADR-003) — this schema doesn't attempt
+// database-level RLS; that's a documented later hardening option, not MVP.
 
 generator client {
   provider = "prisma-client-js"
@@ -13,4 +13,138 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// A person's global identity — keyed by email, since OTP auth verifies
+// possession of an email, not a tenant-scoped credential. One User can hold
+// memberships (TenantUser) in more than one Tenant (G-03).
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  displayName     String
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  memberships   TenantUser[]
+  loginCodes    LoginCode[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+// A business account on QueueFlow. Distinct from customer signup (Phase 9) —
+// this is the business/staff side (ADR-003).
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  ownerName String
+
+  // Capability toggles (G-01/ADR-005). QR Management and the live dashboard
+  // are always-on for every tenant and therefore have no field here — only
+  // the two genuinely optional capability modules do. `appointmentEnabled`
+  // records intent only until the appointment engine (Phase C) exists.
+  queueEnabled       Boolean @default(true)
+  appointmentEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   TenantUser[]
+  invites       TenantInvite[]
+  refreshTokens RefreshToken[]
+
+  @@map("tenants")
+}
+
+enum TenantRole {
+  TENANT_OWNER
+  TENANT_ADMIN
+  MANAGER
+  STAFF
+}
+
+// Join table granting a User a role within one Tenant. A user can have at
+// most one membership per tenant (re-inviting to change role updates this
+// row rather than creating a duplicate).
+model TenantUser {
+  id        String     @id @default(uuid())
+  tenantId  String
+  userId    String
+  role      TenantRole
+  createdAt DateTime   @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_users")
+}
+
+// A pending staff invitation (G-02). Accepting one requires proving control
+// of the invited email via OTP, same as any other login — the OTP itself
+// lives on this row (codeHash/codeExpiresAt/codeAttempts) rather than the
+// LoginCode table, since an invitee may not have a User row yet.
+model TenantInvite {
+  id             String     @id @default(uuid())
+  tenantId       String
+  email          String
+  role           TenantRole
+  token          String     @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  codeHash       String?
+  codeExpiresAt  DateTime?
+  codeAttempts   Int        @default(0)
+  createdAt      DateTime   @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([email])
+  @@map("tenant_invites")
+}
+
+// One-time email login code. Mirrors budget-terry's LoginCode shape exactly
+// (ADR-004) — codeHash never the plaintext code, attempts tracked for
+// lockout, consumedAt marks single-use.
+model LoginCode {
+  id         String    @id @default(uuid())
+  userId     String
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("login_codes")
+}
+
+// Opaque rotating refresh token (ADR-004). Only its hash is ever stored;
+// the plaintext is returned to the client once and never persisted.
+//
+// Scoped to one tenant, not just one user — a token issued while acting in
+// Tenant A must not silently refresh into Tenant B's context for a
+// multi-membership user. Switching tenants means going through
+// select-tenant again with a fresh login.
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tenantId   String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+  @@map("refresh_tokens")
 }

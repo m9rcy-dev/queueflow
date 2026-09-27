@@ -26,7 +26,6 @@
     "@nestjs/platform-express": "^10.4.15",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6.2.1",
-    "argon2": "^0.41.1",
     "helmet": "^8.3.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -64,7 +63,7 @@
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.ts$": "ts-jest"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
