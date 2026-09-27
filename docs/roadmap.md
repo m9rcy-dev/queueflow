@@ -38,11 +38,23 @@ flow, refresh rotation), plus manual end-to-end verification against the real de
 
 ### Phase 2 — Locations & Services
 
-Location (timezone, business hours per §39), Service, `queue_service` join (D-04), staff record
-(no PIN/trust yet — that's Phase 5). Continues the setup wizard from Phase 1.
+**Status: ✅ Done** (2026-09-27)
 
-**Acceptance:** admin can create a location and services; services can be enabled/disabled; a
-location has a timezone that later date/time logic actually uses.
+Location (IANA timezone, validated against the runtime's actual tz database), BusinessHours (one
+row per open period — split periods supported, plan §39), Service (per-service `queueEnabled`/
+`appointmentEnabled`, distinct from the Tenant-level toggles). **Deliberate scope decision made**:
+no separate `Staff` entity — the queue engine (Phase 3) already resolved to plain FIFO with no
+per-staff service-capability filtering (G-11), so `TenantUser` is sufficient to represent "who's
+staff here." Revisit only if a later phase genuinely needs staff-location-service capability
+assignment. The `queue_service` join (D-04) is Phase 3's, not this phase's — a queue doesn't exist
+yet to join against.
+
+**Acceptance:** admin can create/edit a location and services; services can be enabled/disabled; a
+location has a timezone that later date/time logic will consult. Verified: 13 unit tests + 5
+Testcontainers integration tests (cross-tenant isolation on both locations and services, the
+location→service ownership cross-check, split-hours round-trip, STAFF role-blocked from creating a
+location), plus manual end-to-end verification against the real dev server first. See
+`PROJECT_STATUS.md` Completed section for detail.
 
 ### Phase 3 — Queue Domain
 

@@ -53,6 +53,8 @@ model Tenant {
   memberships   TenantUser[]
   invites       TenantInvite[]
   refreshTokens RefreshToken[]
+  locations     Location[]
+  services      Service[]
 
   @@map("tenants")
 }
@@ -147,4 +149,72 @@ model RefreshToken {
   @@index([userId])
   @@index([tenantId])
   @@map("refresh_tokens")
+}
+
+// Phase 2 (Locations & Services). Deliberately no separate Staff entity yet
+// (docs/roadmap.md Phase 2 note) — the queue engine (Phase 3) resolved to
+// plain FIFO with no per-staff service-capability filtering (G-11), so
+// TenantUser (with its role) is sufficient to represent "who's staff here."
+// Revisit only if a later phase genuinely needs staff-location-service
+// capability assignment.
+model Location {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  address   String?
+  // IANA timezone name (e.g. "Pacific/Auckland") — all business-hours and
+  // scheduling logic (Phase 3 onward, G-16/§39) is computed in this
+  // timezone, never assumed UTC.
+  timezone  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  businessHours BusinessHours[]
+  services      Service[]
+
+  @@index([tenantId])
+  @@map("locations")
+}
+
+// One row per open period. Deliberately not one-row-per-day — a location
+// can have split periods (e.g. 09:00-12:00 and 13:00-17:00 the same day,
+// plan §39) by having two rows with the same dayOfWeek.
+model BusinessHours {
+  id              String   @id @default(uuid())
+  locationId      String
+  dayOfWeek       Int // 0=Sunday .. 6=Saturday
+  opensAtMinutes  Int // minutes since local midnight, e.g. 540 = 09:00
+  closesAtMinutes Int
+  createdAt       DateTime @default(now())
+
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([locationId])
+  @@map("business_hours")
+}
+
+model Service {
+  id              String   @id @default(uuid())
+  tenantId        String
+  locationId      String
+  name            String
+  description     String?
+  durationMinutes Int
+  active          Boolean  @default(true)
+  // Capability toggles, per-service (distinct from Tenant's own toggles) —
+  // a business might offer a service only via queue, only via appointment
+  // (Phase C), or both.
+  queueEnabled       Boolean  @default(true)
+  appointmentEnabled Boolean  @default(false)
+  displayOrder       Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([locationId])
+  @@map("services")
 }
