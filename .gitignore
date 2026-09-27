@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+.dev-logs/
+
+# editor/os
+.DS_Store
+.vscode/
+.idea/
+
+# prisma
+apps/api/prisma/dev.db
+
+# coverage
+coverage/

@@ -1,0 +1,45 @@
+{
+  "name": "queueflow",
+  "private": true,
+  "version": "0.0.0",
+  "description": "QueueFlow monorepo — web and API.",
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "pnpm -r --if-present run lint",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "test:integration": "pnpm -r --if-present run test:integration",
+    "build": "pnpm -r --if-present run build",
+    "quality": "pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration",
+    "db:migrate": "pnpm --filter @queueflow/api run db:migrate",
+    "dev": "bash scripts/dev.sh restart",
+    "dev:start": "bash scripts/dev.sh start",
+    "dev:stop": "bash scripts/dev.sh stop"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "argon2",
+      "@prisma/client",
+      "@prisma/engines",
+      "cpu-features",
+      "esbuild",
+      "prisma",
+      "protobufjs",
+      "ssh2"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
+  }
+}

@@ -1,0 +1,29 @@
+# Local development only. Never point this at a production database.
+# Redis here is for local dev parity — deployed environments use Upstash
+# (ADR-002 / D-06), so this container never needs to be internet-reachable.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: queueflow
+      POSTGRES_PASSWORD: queueflow
+      POSTGRES_DB: queueflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - queueflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queueflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  queueflow_postgres_data:

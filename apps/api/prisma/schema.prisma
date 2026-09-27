@@ -1,0 +1,16 @@
+// QueueFlow — Prisma schema
+//
+// Phase 0 deliberately ships this near-empty: the point of Phase 0 is proving
+// the migration *framework* works (connect, generate, migrate), not defining
+// the domain. Phase 1 (Identity and Tenant) adds Tenant, TenantUser,
+// LoginCode, RefreshToken, DeviceTrust — see PROJECT_STATUS.md's Next Task
+// and ADR-003/ADR-004 for the shape those should take.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
