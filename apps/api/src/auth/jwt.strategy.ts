@@ -36,6 +36,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         message: "Your access to this business has been revoked.",
       });
     }
-    return { userId: payload.sub, tenantId: payload.tenantId, role: membership.role };
+    return {
+      userId: payload.sub,
+      tenantId: payload.tenantId,
+      tenantUserId: membership.id,
+      role: membership.role,
+    };
   }
 }

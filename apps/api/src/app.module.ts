@@ -7,6 +7,8 @@ import { RolesGuard } from "./auth/roles.guard";
 import { HealthModule } from "./health/health.module";
 import { LocationsModule } from "./locations/locations.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { QueueEntriesModule } from "./queue-entries/queue-entries.module";
+import { QueuesModule } from "./queues/queues.module";
 import { ServicesModule } from "./services/services.module";
 import { TenantsModule } from "./tenants/tenants.module";
 
@@ -19,6 +21,8 @@ import { TenantsModule } from "./tenants/tenants.module";
     TenantsModule,
     LocationsModule,
     ServicesModule,
+    QueuesModule,
+    QueueEntriesModule,
   ],
   providers: [
     // Every route is protected by default (AGENTS.md §2) — @Public() opts

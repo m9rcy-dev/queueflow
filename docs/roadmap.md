@@ -58,14 +58,28 @@ location), plus manual end-to-end verification against the real dev server first
 
 ### Phase 3 — Queue Domain
 
-Queue, `queue_entry`, the full state machine (G-15), FIFO position/estimated-wait formulas
-(G-11/G-12, computed on read per G-13), ticket-number allocation (G-10/ADR-006), `FOR UPDATE SKIP
-LOCKED` concurrency for Call Next (ADR-006), idempotency keys (G-21), end-of-day/staff-controlled
-closing (G-16), max-active-tickets enforcement (G-34).
+**Status: ✅ Done** (2026-09-27)
+
+Queue, `Customer` (added ahead of schedule — needed now so G-34's max-active-tickets cap can
+actually identify a repeat customer by phone), `QueueService` (D-04's join), `QueueTicketCounter`
+(atomic per-queue-per-day allocator, G-10/ADR-006), `QueueEntry` (the full state machine, G-15;
+position/estimated-wait always computed on read, never stored, G-13). `Call Next` uses
+`SELECT ... FOR UPDATE SKIP LOCKED` via `$queryRaw` (ADR-006). Idempotency keys (G-21).
+End-of-day/staff-controlled closing cascade-cancels remaining `WAITING` entries (G-16).
+Max-active-tickets enforced at both the per-queue and per-location level (G-34). Public,
+unauthenticated join/lookup/cancel routes (`/public/queues/:id/entries`, `/public/queue-entries/:token`)
+alongside the staff-authenticated lifecycle actions (call-next/start/complete/skip/requeue/cancel/
+no-show/recall) — no customer-facing or staff-facing UI yet, by design (Phases 4-5 build those).
 
 **Acceptance:** customer can join (via a seeded test path — no UI yet), duplicate active entries are
 controlled, position is correct, concurrent Call Next cannot select the same entry, invalid
-transitions fail, closing the queue blocks new joins.
+transitions fail, closing the queue blocks new joins. Verified: 74 unit + 19 Testcontainers
+integration tests — including a genuine concurrency test (8 simultaneous joins, then 12 simultaneous
+Call Next requests via `Promise.all` against real Postgres: exactly 8 succeeded, each claiming a
+_distinct_ entry, the other 4 correctly found nothing left) — plus manual end-to-end verification
+first, which caught a real bug (`assignedStaffId` was being set to `User.id` instead of the
+`TenantUser.id` the foreign key actually requires) before any test was written. See
+`PROJECT_STATUS.md` Completed section for detail.
 
 ### Phase 4 — Customer Queue UI
 

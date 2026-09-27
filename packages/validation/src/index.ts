@@ -2,3 +2,4 @@ export * from "./auth";
 export * from "./tenant";
 export * from "./location";
 export * from "./service";
+export * from "./queue";

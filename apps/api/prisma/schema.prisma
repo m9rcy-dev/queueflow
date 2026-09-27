@@ -36,7 +36,7 @@ model User {
 // A business account on QueueFlow. Distinct from customer signup (Phase 9) —
 // this is the business/staff side (ADR-003).
 model Tenant {
-  id        String   @id @default(uuid())
+  id        String @id @default(uuid())
   name      String
   ownerName String
 
@@ -55,6 +55,9 @@ model Tenant {
   refreshTokens RefreshToken[]
   locations     Location[]
   services      Service[]
+  customers     Customer[]
+  queues        Queue[]
+  queueEntries  QueueEntry[]
 
   @@map("tenants")
 }
@@ -79,6 +82,8 @@ model TenantUser {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  assignedQueueEntries QueueEntry[]
+
   @@unique([tenantId, userId])
   @@index([userId])
   @@map("tenant_users")
@@ -89,18 +94,18 @@ model TenantUser {
 // lives on this row (codeHash/codeExpiresAt/codeAttempts) rather than the
 // LoginCode table, since an invitee may not have a User row yet.
 model TenantInvite {
-  id             String     @id @default(uuid())
-  tenantId       String
-  email          String
-  role           TenantRole
-  token          String     @unique
-  expiresAt      DateTime
-  acceptedAt     DateTime?
-  revokedAt      DateTime?
-  codeHash       String?
-  codeExpiresAt  DateTime?
-  codeAttempts   Int        @default(0)
-  createdAt      DateTime   @default(now())
+  id            String     @id @default(uuid())
+  tenantId      String
+  email         String
+  role          TenantRole
+  token         String     @unique
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  revokedAt     DateTime?
+  codeHash      String?
+  codeExpiresAt DateTime?
+  codeAttempts  Int        @default(0)
+  createdAt     DateTime   @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -135,13 +140,13 @@ model LoginCode {
 // multi-membership user. Switching tenants means going through
 // select-tenant again with a fresh login.
 model RefreshToken {
-  id         String    @id @default(uuid())
-  userId     String
-  tenantId   String
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  id        String    @id @default(uuid())
+  userId    String
+  tenantId  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -169,9 +174,15 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Cross-queue cap for a repeat customer at this location (G-34) — only
+  // binds once a location has more than one queue (D-04's default is one
+  // queue per location, where the per-queue cap on Queue already governs).
+  maxActiveTicketsPerCustomer Int @default(2)
+
   tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   businessHours BusinessHours[]
   services      Service[]
+  queues        Queue[]
 
   @@index([tenantId])
   @@map("locations")
@@ -195,13 +206,13 @@ model BusinessHours {
 }
 
 model Service {
-  id              String   @id @default(uuid())
-  tenantId        String
-  locationId      String
-  name            String
-  description     String?
-  durationMinutes Int
-  active          Boolean  @default(true)
+  id                 String   @id @default(uuid())
+  tenantId           String
+  locationId         String
+  name               String
+  description        String?
+  durationMinutes    Int
+  active             Boolean  @default(true)
   // Capability toggles, per-service (distinct from Tenant's own toggles) —
   // a business might offer a service only via queue, only via appointment
   // (Phase C), or both.
@@ -214,7 +225,180 @@ model Service {
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
+  queueServices QueueService[]
+  queueEntries  QueueEntry[]
+
   @@index([tenantId])
   @@index([locationId])
   @@map("services")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 (Queue Domain, docs/roadmap.md) — the highest-risk phase in the
+// whole plan (docs/plan-review.md §5). No customer-facing/staff-facing UI
+// yet — this is proven via API + tests only (Phases 4-5 build the UI).
+// ---------------------------------------------------------------------------
+
+// A customer is reused across visits by phone number (G-33's resolution),
+// not a fresh row per join — this is what makes "max active tickets per
+// customer" (G-34) even enforceable. Tenant-scoped, distinct from the
+// business/staff side (User/TenantUser) entirely — customers never log in
+// via this table (that's Phase 9's separate CUSTOMER_IDENTITY system).
+model Customer {
+  id        String   @id @default(uuid())
+  tenantId  String
+  // E.164 (G-33) — normalized at the boundary, never stored in whatever
+  // format the customer typed.
+  phoneE164 String
+  firstName String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entries QueueEntry[]
+
+  @@unique([tenantId, phoneE164])
+  @@index([tenantId])
+  @@map("customers")
+}
+
+enum QueueStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+model Queue {
+  id                          String      @id @default(uuid())
+  tenantId                    String
+  // D-04: one queue per location, many services attached — this is that
+  // join. A location having a second queue is a supported future config
+  // choice, not a code fork.
+  locationId                  String
+  name                        String
+  status                      QueueStatus @default(ACTIVE)
+  // Plain integer (G-12) — not inferred from staff/shift records, which
+  // don't exist yet. Bump if a shop runs multiple chairs.
+  servingCapacity             Int         @default(1)
+  // Per-customer cap within this one queue (G-34).
+  maxActiveTicketsPerCustomer Int         @default(1)
+  // Recall/no-show tuning, per-business-configurable (G-15 resolution).
+  maxRecallCount              Int         @default(2)
+  recallGracePeriodMinutes    Int         @default(5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  queueServices  QueueService[]
+  entries        QueueEntry[]
+  ticketCounters QueueTicketCounter[]
+
+  @@index([tenantId])
+  @@index([locationId])
+  @@map("queues")
+}
+
+// Which services this queue accepts (D-04) — a customer picks one of these
+// when joining; all selected services share the one FIFO line.
+model QueueService {
+  id        String @id @default(uuid())
+  queueId   String
+  serviceId String
+
+  queue   Queue   @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([queueId, serviceId])
+  @@map("queue_services")
+}
+
+// Atomic ticket-number allocator (G-10/ADR-006) — one row per (queue,
+// calendar day in the *location's* timezone). Incremented via an upsert
+// with ON CONFLICT DO UPDATE, which Postgres guarantees is race-free
+// without needing a raw SELECT ... FOR UPDATE for this particular counter.
+model QueueTicketCounter {
+  id          String   @id @default(uuid())
+  queueId     String
+  serviceDate DateTime @db.Date
+  lastNumber  Int      @default(0)
+
+  queue Queue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+
+  @@unique([queueId, serviceDate])
+  @@map("queue_ticket_counters")
+}
+
+enum QueueEntryStatus {
+  WAITING
+  CALLED
+  SERVING
+  COMPLETED
+  CANCELLED
+  SKIPPED
+  NO_SHOW
+}
+
+model QueueEntry {
+  id         String  @id @default(uuid())
+  tenantId   String
+  queueId    String
+  serviceId  String
+  customerId String?
+
+  // Set at CALLED (G-18) — required for the trusted-device/PIN audit trail
+  // (D-03a) once Phase 5 builds the staff device; the field exists now so
+  // Phase 5 doesn't need a schema change.
+  assignedStaffId String?
+
+  // Opaque, high-entropy (G-39) — the anonymous customer's only way back to
+  // their own ticket (G-45). Never a sequential/guessable ID.
+  publicToken String @unique
+
+  ticketNumber Int
+  serviceDate  DateTime         @db.Date
+  status       QueueEntryStatus @default(WAITING)
+
+  // Inert in MVP (G-35, D-04/G-11 resolved to plain FIFO) — kept so a
+  // future priority policy is a data migration, not a schema change.
+  priority Int @default(0)
+
+  // Idempotency (G-21) — nullable; only enforced when the caller actually
+  // supplies one. Postgres allows multiple NULLs under a unique index, so
+  // this doesn't block ordinary duplicate-free joins.
+  idempotencyKey String?
+
+  // Recall is a notification resend, not a state change (G-15) — this
+  // counter is what the (future, Phase 7) auto-no-show timeout consults.
+  recallCount Int @default(0)
+
+  joinedAt           DateTime  @default(now())
+  calledAt           DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  // Optimistic-locking guard on top of Call Next's FOR UPDATE SKIP LOCKED
+  // (ADR-006) — belt and suspenders for the single-entry transitions
+  // (start/complete/skip/etc.) which don't go through the row-lock query.
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queue         Queue       @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customer      Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedStaff TenantUser? @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([queueId, serviceDate, ticketNumber])
+  @@index([queueId, status])
+  @@index([customerId])
+  @@map("queue_entries")
 }

@@ -1,7 +1,7 @@
 # Project Status
 
 Last Updated: 2026-09-27
-Current Phase: Phase 3 — Queue Domain (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–2 done)
+Current Phase: Phase 4 — Customer Queue UI (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–3 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -9,52 +9,54 @@ Current Task: See Next Task below
 ### Phase -1 — Planning and Architecture Review
 
 - Reviewed `docs/QueueFlow_Detailed_Plan.md` and `docs/QueueFlow_Visual_Prototype_and_Screen_Flows.md` end to end against a working baseline (`/Users/m9rcy/dev/ai/budget-terry`).
-- Wrote `docs/plan-review.md` — a full gap/contradiction review, worked through in discussion with the user (D-01–D-16, C-01–C-07, G-01–G-51 all resolved except appointment-engine specifics and the kiosk config screen, deliberately deferred).
+- Wrote `docs/plan-review.md` — full gap/contradiction review, worked through with the user (D-01–D-16, C-01–C-07, G-01–G-51 resolved except appointment-engine specifics and the kiosk config screen, deliberately deferred).
 - Wrote `AGENTS.md`, `CLAUDE.md`, `docs/roadmap.md` (the authoritative 13-phase list), ADR-001 through ADR-010. Initialized git.
 
 ### Phase 0 — Repository Bootstrap
 
 - Monorepo skeleton: pnpm workspaces, `apps/api` (NestJS + Prisma), `apps/web` (Next.js), `packages/{types,validation,api-client,ui}`, `docker-compose.yml`, CI.
-- Verified: `pnpm quality` passes end to end; both dev servers boot for real.
 
 ### Phase 1 — Tenant & Core Auth
 
-- Prisma: `User`, `Tenant` (capability toggles), `TenantUser` (role), `TenantInvite`, `LoginCode`, `RefreshToken` (tenant-scoped, not just user-scoped).
-- Business signup (G-01, separate from login), OTP login (G-05's exact numbers), tenant selection for multi-membership users (G-03), staff invites (G-02), global `JwtAuthGuard`+`RolesGuard`, refresh rotation, logout.
-- Tests: 29 unit + 7 Testcontainers integration tests (including the cross-tenant isolation acceptance test — 404, not 403). Manually verified end-to-end against the real dev server first. `argon2` removed (no passwords anywhere).
+- Prisma: `User`, `Tenant`, `TenantUser`, `TenantInvite`, `LoginCode`, `RefreshToken` (tenant-scoped).
+- Business signup (G-01), OTP login (G-05), tenant selection for multi-membership users (G-03), staff invites (G-02), global `JwtAuthGuard`+`RolesGuard`, refresh rotation.
+- Tests: 29 unit + 7 integration (including cross-tenant isolation).
 
 ### Phase 2 — Locations & Services
 
-- Prisma: `Location` (IANA timezone, validated against the runtime's real tz database via `Intl.supportedValuesOf`), `BusinessHours` (one row per open period, split periods supported per plan §39), `Service` (per-service capability toggles).
-- **Deliberate scope decision**: no separate `Staff` entity — `TenantUser` is sufficient, since the queue engine (Phase 3) already resolved to plain FIFO with no per-staff service-capability filtering (G-11). Documented in `docs/roadmap.md` so it isn't silently revisited.
-- CRUD endpoints under `/tenants/me/locations` and `/tenants/me/services`, role-gated to `TENANT_OWNER`/`TENANT_ADMIN` for mutations, ownership-in-the-query throughout. Business hours use full-replace semantics (send the whole week each time), not a merge. Service creation cross-checks the referenced location's ownership (404, not 400, for someone else's location — consistent with Phase 1's invite pattern).
-- Tests: 13 unit + 5 Testcontainers integration tests (cross-tenant isolation on both resources, the location→service ownership cross-check, split-hours round-trip, STAFF blocked from creating a location). Manually verified end-to-end first (two real businesses, real timezone validation, real cross-tenant 404s) before writing the automated tests.
-- `pnpm quality` passes end to end (build, format, lint, typecheck, 42 unit + 12 integration tests total across the project so far).
+- Prisma: `Location` (IANA timezone, validated against the real tz database), `BusinessHours` (split periods), `Service` (per-service capability toggles). Deliberately no `Staff` entity — `TenantUser` suffices.
+- CRUD under `/tenants/me/locations` and `/tenants/me/services`, ownership-in-the-query throughout.
+- Tests: 13 unit + 5 integration.
+
+### Phase 3 — Queue Domain
+
+- Prisma: `Customer` (added ahead of schedule — needed for G-34's per-customer cap), `Queue`, `QueueService`, `QueueTicketCounter`, `QueueEntry` (full state machine, G-15).
+- Ticket allocation atomic per queue/location-local-day (G-10). Position/estimated-wait always computed on read (G-13/G-11/G-12). Call Next uses `FOR UPDATE SKIP LOCKED` (ADR-006). Idempotency (G-21). Closing a queue cascade-cancels `WAITING` entries and blocks new joins (G-16). Max-active-tickets at both per-queue and per-location level (G-34).
+- Public routes: `POST /public/queues/:id/entries` (join), `GET /public/queue-entries/:token`, `POST /public/queue-entries/:token/cancel`. Staff routes: list, call-next, start, complete, skip, requeue, cancel, no-show, recall — under `/tenants/me/queues/...` and `/tenants/me/queue-entries/...`.
+- Tests: 74 unit + 19 integration total across the project, including a genuine concurrency test (8 simultaneous joins, then 12 simultaneous Call Next requests via `Promise.all`: exactly 8 succeeded, each claiming a distinct entry). Manual end-to-end verification first caught a real bug — `assignedStaffId` was being set to `User.id` instead of the `TenantUser.id` the foreign key actually requires — before any automated test existed.
+- `pnpm quality` passes end to end.
 
 ## Decisions Made
 
-See `docs/plan-review.md` (D-01–D-16) and `docs/adr/` for the formal ADRs. Additions made during implementation, not yet folded into either: `RefreshToken` scoped by `tenantId` as well as `userId` (Phase 1); no separate `Staff` entity for now (Phase 2, see above).
+See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
 
 ## Known Issues
 
-- `packages/api-client` and `packages/ui` are still empty shells — no web UI consumes any API endpoint yet. This is genuinely due soon (Phase 4's Customer Queue UI is the first phase that needs a real frontend), not indefinitely deferred.
-- Real SMS/email provider (Pingram) not yet integrated — `MailService` is `ConsoleMailService` (logs to stdout). Phase 8's job.
-- Network-level rate limiting (G-38, Redis/Upstash-backed) not yet wired — OTP attempt-lockout is implemented and tested; per-IP/hour throttling is deferred to Phase 12 (Hardening), as scoped.
-- No password reset flow exists anywhere, by design — there are no passwords.
+- **No code/QR resolver exists yet.** Phase 3's public join API takes a raw `queueId` directly in the URL — it does not go through the unified `code` model (§4.5/ADR-005: `CUSTOMER_IDENTITY`, `GUEST_CARD`, etc.). Phase 4 needs at minimum a small resolver for the `QUEUE` context type (a `code` → `{tenantId, locationId, queueId}` lookup) so a printed/scanned QR doesn't have to embed a raw internal UUID. Do not build the _full_ ADR-005 model now — `CUSTOMER_IDENTITY`/`GUEST_CARD`/`APPOINTMENT_TICKET` are Phases 9/10/C's job; build only what the anonymous walk-in needs.
+- **No realtime (SSE) exists yet.** Phase 4's "live position" requirement needs a `GET /public/queue-entries/:token/events` SSE endpoint — not built in Phase 3, which only proved the engine via plain request/response.
+- `packages/api-client` and `packages/ui` are still empty shells — Phase 4 is genuinely the first phase that needs them filled in.
+- Real SMS/email provider (Pingram) not yet integrated — `MailService` is `ConsoleMailService`. Phase 8's job.
+- Network-level rate limiting (G-38, Redis/Upstash-backed) not yet wired — deferred to Phase 12 as scoped. G-40's Turnstile on the join POST is also not yet added — the public join endpoint has no bot/abuse protection yet.
+- No background job/scheduler exists — business-hours-based auto-closing (as a fallback to staff-controlled closing, G-16) and auto-no-show-after-grace-period (G-15) are both designed but not implemented; staff must act manually for now.
 
 ## Next Task
 
-**Phase 3 — Queue Domain**, per `docs/roadmap.md` — the highest-risk phase in the whole plan (see `docs/plan-review.md` §5):
+**Phase 4 — Customer Queue UI**, per `docs/roadmap.md`:
 
-1. Prisma schema: `Queue` (tenantId, locationId, name, status: ACTIVE/PAUSED/CLOSED per G-16), `QueueService` (join, D-04 — one queue per location, many services attached), `QueueEntry` (ticket number, status, position is **computed on read, never stored** per G-13, `joined_at`/`called_at`/`started_at`/`completed_at`/`cancelled_at`, `version` for optimistic locking per ADR-006, `assigned_staff_id` referencing `TenantUser`).
-2. The full state machine (G-15): `WAITING → CALLED → SERVING → COMPLETED`, plus `SKIPPED → WAITING` (requeue, same ticket number, fresh `joined_at`), `CALLED → CANCELLED`, and "recall" as a notification resend rather than a state change.
-3. Ticket-number allocation (G-10): atomic counter per queue, reset at location-local midnight — this is where `Location.timezone` (Phase 2) first actually gets consumed, not just stored.
-4. Call Next: `SELECT ... FOR UPDATE SKIP LOCKED` via `$queryRaw` (ADR-006) — two simultaneous requests must never select the same entry. This needs a genuine concurrency integration test (two parallel requests against a real Postgres), not just sequential ones.
-5. Position/estimated-wait formulas exactly as specified in G-11/G-12: plain FIFO count of `WAITING` entries ahead; `ceil(sum(durationMinutes ahead) / max(1, servingCapacity))`.
-6. Idempotency keys for joining (G-21) — reuse Phase 1's unique-column-plus-race-fallback pattern.
-7. End-of-day/staff-controlled closing (G-16): closing a queue blocks new joins; remaining `WAITING` entries auto-cancel with a notification stub (real notification is Phase 7 — a mock/log call is fine here).
-8. Max-active-tickets enforcement (G-34): 1 per queue, 2 per location, tenant-adjustable.
+1. **Minimal code resolver** (see Known Issues above): a `Code` model scoped to the `QUEUE` context type only for now — `publicCode → {tenant, location, queue, capabilities}` — plus an admin endpoint to generate one for a queue. Do not build the other ADR-005 code kinds yet.
+2. **SSE endpoint**: `GET /public/queue-entries/:token/events` streaming position/status changes, with the client refetching current state on reconnect (G-27) rather than trusting it caught every event.
+3. **Rate limiting + bot check on the join POST** (G-40) — this is the first genuinely public-unauthenticated write endpoint in the system; it should not ship without at least a basic protection.
+4. Next.js pages in `apps/web`: QR-landing/context page → service selection → name+mobile form → ticket confirmation page (showing the ticket-as-QR per §4.5, for recovery) → live ticket page (SSE-updated) → leave-queue button.
+5. Fill in `packages/api-client` with a typed fetch client for the public endpoints, and `packages/ui` with the first real shared components (Button, Card, Input, Badge) per the visual doc's design tokens (already in `apps/web/tailwind.config.ts`).
 
-No customer-facing or staff-facing UI yet (that's Phases 4–5) — this phase proves the engine via API + tests only, matching the plan's own "prove the engine before building screens" instinct.
-
-Acceptance: a queue entry can be created via a seeded test path; duplicate active entries are controlled; position is correct; concurrent Call Next cannot select the same entry (proven with an actual concurrent integration test); invalid transitions fail; closing the queue blocks new joins. Cross-tenant isolation integration-tested the same way as Phases 1–2.
+Acceptance: the plan's own first vertical-slice customer half works end to end on a real phone — scan/open a link, join, see live position update without a page refresh, leave the queue.
