@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import { QueuesService } from "./queues.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { LocationsService } from "../locations/locations.service";
+import { QueueEventsService } from "../queue-events/queue-events.service";
 
 describe("QueuesService", () => {
   let service: QueuesService;
@@ -14,6 +15,7 @@ describe("QueuesService", () => {
     $transaction: jest.Mock;
   };
   let locationsService: { get: jest.Mock };
+  let queueEvents: { emitQueueChanged: jest.Mock };
 
   const tenantId = "tenant-1";
   const queue = {
@@ -37,12 +39,14 @@ describe("QueuesService", () => {
       $transaction: jest.fn(),
     };
     locationsService = { get: jest.fn() };
+    queueEvents = { emitQueueChanged: jest.fn() };
 
     const module = await Test.createTestingModule({
       providers: [
         QueuesService,
         { provide: PrismaService, useValue: prisma },
         { provide: LocationsService, useValue: locationsService },
+        { provide: QueueEventsService, useValue: queueEvents },
       ],
     }).compile();
 
@@ -97,6 +101,15 @@ describe("QueuesService", () => {
 
       const transactionArg = prisma.$transaction.mock.calls[0][0];
       expect(transactionArg).toHaveLength(1); // queue.update only
+    });
+
+    it("emits a queue-changed event so live SSE watchers (ticket page, display) see the status change without a refresh", async () => {
+      prisma.queue.findFirst.mockResolvedValue(queue);
+      prisma.$transaction.mockResolvedValue([{ ...queue, status: "PAUSED" }]);
+
+      await service.updateStatus(tenantId, "queue-1", { status: "PAUSED" });
+
+      expect(queueEvents.emitQueueChanged).toHaveBeenCalledWith("queue-1");
     });
   });
 

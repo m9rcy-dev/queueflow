@@ -142,11 +142,25 @@ trust device → log out → PIN-switch back in. 102 unit + 31 integration tests
 
 ### Phase 6 — Public Display
 
+**Status: ✅ Done** (2026-09-28)
+
 The TV screen: ticket number only, **no names, no PII** (C-01), fullscreen, auto-reconnect, runs as a
-browser tab on whatever screen the business has (ADR-009).
+browser tab on whatever screen the business has (ADR-009). `DISPLAY` added to `CodeContextType`
+(G-07's resolution: no auth, just a rotatable code — deactivate + mint fresh one to rotate), a new
+`GET /public/displays/:code/events` SSE endpoint (`DisplaysModule`) publishing a `DisplaySnapshot` —
+now-serving ticket numbers + service names and next-up numbers only, structurally incapable of
+carrying customer/staff identity since the underlying queries never select those fields.
+`apps/web/src/app/display/[code]`: fullscreen dark board, `EventSource` auto-reconnect plus a 70s
+watchdog for a silently-stalled connection. Found and fixed a real bug along the way:
+`QueuesService.updateStatus()` never emitted a queue-changed event, so pause/close was invisible to
+every SSE watcher (ticket page and display alike) until an unrelated update — now fixed and covered by
+a unit test.
 
 **Acceptance:** display runs independently, updates live, survives a network blip, exposes nothing
-identifying.
+identifying. Verified via a real headless-Chromium run: empty board → customer joins and gets called
+live with no display reload → full-page PII scan found zero matches → pausing the queue updates the
+board live → an invalid code shows a sensible message. 113 unit + 34 integration tests, `pnpm quality`
+green.
 
 ### Phase 7 — Notification Infrastructure
 

@@ -8,12 +8,14 @@ import type {
 } from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { LocationsService } from "../locations/locations.service";
+import { QueueEventsService } from "../queue-events/queue-events.service";
 
 @Injectable()
 export class QueuesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly locationsService: LocationsService,
+    private readonly queueEvents: QueueEventsService,
   ) {}
 
   async create(tenantId: string, input: CreateQueueInput): Promise<QueueSummary> {
@@ -93,6 +95,12 @@ export class QueuesService {
           ]
         : []),
     ]);
+    // Status changes (and CLOSED's mass-cancellation) affect every SSE
+    // watcher on this queue — the customer ticket page and the public
+    // display alike — so this needs the same signal any other mutation
+    // gives them, even though it doesn't go through queue-entries'
+    // transition() helper.
+    this.queueEvents.emitQueueChanged(queueId);
     return toQueueSummary(queue);
   }
 

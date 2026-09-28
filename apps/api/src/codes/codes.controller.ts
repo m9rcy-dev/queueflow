@@ -1,4 +1,6 @@
-import { Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from "@nestjs/common";
+import { createCodeSchema, type CreateCodeInput } from "@queueflow/validation";
+import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { Public } from "../auth/public.decorator";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { Roles } from "../auth/roles.decorator";
@@ -11,13 +13,28 @@ export class QueueCodesController {
 
   @Post()
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
-  create(@CurrentUser() user: RequestUser, @Param("queueId") queueId: string) {
-    return this.codesService.createForQueue(user.tenantId, queueId);
+  create(
+    @CurrentUser() user: RequestUser,
+    @Param("queueId") queueId: string,
+    @Body(new ZodValidationPipe(createCodeSchema)) body: CreateCodeInput,
+  ) {
+    return this.codesService.createForQueue(user.tenantId, queueId, body.contextType);
   }
 
   @Get()
   list(@CurrentUser() user: RequestUser, @Param("queueId") queueId: string) {
     return this.codesService.listForQueue(user.tenantId, queueId);
+  }
+
+  @Post(":codeId/deactivate")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deactivate(
+    @CurrentUser() user: RequestUser,
+    @Param("queueId") queueId: string,
+    @Param("codeId") codeId: string,
+  ): Promise<void> {
+    await this.codesService.deactivate(user.tenantId, queueId, codeId);
   }
 }
 

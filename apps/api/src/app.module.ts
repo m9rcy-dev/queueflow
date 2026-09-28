@@ -7,6 +7,7 @@ import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
 import { AppThrottlerGuard } from "./common/app-throttler.guard";
 import { CodesModule } from "./codes/codes.module";
+import { DisplaysModule } from "./displays/displays.module";
 import { HealthModule } from "./health/health.module";
 import { LocationsModule } from "./locations/locations.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -35,6 +36,7 @@ import { TenantsModule } from "./tenants/tenants.module";
     QueuesModule,
     QueueEntriesModule,
     CodesModule,
+    DisplaysModule,
   ],
   providers: [
     // Every route is protected by default (AGENTS.md §2) — @Public() opts

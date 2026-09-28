@@ -16,6 +16,8 @@ export interface PublicApiClient {
   cancelTicket(token: string, reason?: string): Promise<QueueEntrySummary>;
   /** Not fetched directly — handed to an EventSource by the caller (browser-only API, so this stays a plain URL rather than a method that opens the connection itself). */
   ticketEventsUrl(token: string): string;
+  /** The public TV board's live feed (Phase 6, G-07) — same reasoning as ticketEventsUrl: a plain URL for an EventSource, not a fetch. */
+  displayEventsUrl(code: string): string;
 }
 
 export function createPublicApiClient(baseUrl: string): PublicApiClient {
@@ -53,5 +55,6 @@ export function createPublicApiClient(baseUrl: string): PublicApiClient {
       }),
     ticketEventsUrl: (token) =>
       `${baseUrl}/public/queue-entries/${encodeURIComponent(token)}/events`,
+    displayEventsUrl: (code) => `${baseUrl}/public/displays/${encodeURIComponent(code)}/events`,
   };
 }

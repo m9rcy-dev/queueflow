@@ -447,6 +447,12 @@ model QueueEntry {
 
 enum CodeContextType {
   QUEUE
+  // Phase 6 (Public Display, G-07) — a business-owned TV/board screen.
+  // No auth: the display identifies itself purely via this rotatable
+  // public code (owner regenerates + deactivates the old one if a screen
+  // is repurposed or the link leaks), same `active` boolean every other
+  // context type already uses for exactly that purpose.
+  DISPLAY
 }
 
 model Code {

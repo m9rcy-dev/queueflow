@@ -1,7 +1,7 @@
 # Project Status
 
 Last Updated: 2026-09-28
-Current Phase: Phase 6 — Public Display (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–5 done)
+Current Phase: Phase 7 — Notification Infrastructure (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–6 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -57,6 +57,16 @@ Current Task: See Next Task below
 - Manual verification: the entire flow driven through a real headless Chromium browser — OTP login → dashboard (queue auto-created mid-session via curl, page reloaded, queue appears) → add walk-in → Call Next (dashboard shows "with Priya Owner" live) → Start → Complete → set PIN → trust device → log out → PIN-switch back in, landing on the dashboard again. Screenshotted at each step; console checked for JS errors (only benign, already-caught 401s from the normal "try cached token, fall back to refresh" pattern on full page reloads, doubled by React StrictMode in dev).
 - **Known gap carried forward**: Cloudflare Turnstile still not integrated (see Phase 4's note) — unrelated to this phase.
 
+### Phase 6 — Public Display
+
+- **`DISPLAY` added to `CodeContextType`** (was `QUEUE`-only) — G-07's resolution: no auth at all, a display identifies itself purely via a rotatable public code (`Code.active`, same field every context type already uses — deactivate + mint a fresh one is the whole rotation mechanism). `POST /tenants/me/queues/:queueId/codes` now takes an optional `contextType` body (defaults to `QUEUE`); new `POST .../codes/:codeId/deactivate` for rotation, ownership- and tenant-checked like every other staff route.
+- The existing `GET /public/codes/:code` resolver (Phase 4's join flow) now explicitly rejects a `DISPLAY` code with the same uniform 404 as an unknown/deactivated one — it only ever understands `QUEUE` codes. A `DISPLAY` code is resolved by a new, separate endpoint instead, since the board needs a live feed, not a one-shot lookup (matches the plan's own original split into two distinct routes).
+- New `GET /public/displays/:code/events` (SSE, `DisplaysModule`) — mirrors Phase 4's ticket SSE pattern exactly (initial snapshot, full refetch on every `QueueEventsService` change, heartbeat), but publishes a `DisplaySnapshot` (tenant/location/queue name+status, `nowServing: [{ticketNumber, serviceName}]`, `next: number[]`) that is **structurally incapable of carrying customer or staff identity** — the underlying Prisma queries never select those fields in the first place (defense in depth, not just an omitted DTO field). An integration/unit test and a live-browser PII scan both confirm this.
+- **Real bug found and fixed while building this**: `QueuesService.updateStatus()` (pause/close) never called `QueueEventsService.emitQueueChanged()` — pausing or closing a queue was invisible to every SSE watcher (both the Phase 4 ticket page and this phase's display) until their next unrelated update or a manual refresh. Fixed by emitting on every status change; caught by the Playwright verification run (pause didn't show up on the board), not by any pre-existing test — a new unit test now covers it.
+- `apps/web/src/app/display/[code]`: fullscreen, dark board — large "Now Serving" ticket numbers + service name (one per currently-CALLED/SERVING entry, so `servingCapacity > 1` shows multiple), a "Next Up" row, and a paused/closed message when the queue isn't accepting. `EventSource` auto-reconnects on a clean drop; a 70s watchdog force-reconnects on a silently-stalled connection (a TV left running for hours needs this more than a customer's own ticket page does). `/display` itself is just a guidance page — no display-picker UI exists (see Known Issues).
+- Tests: 6 new unit (`displays.service.spec.ts`) + 4 new codes unit tests (DISPLAY create/deactivate) + 1 new queues unit test (the emit fix) → 113 total unit; 3 new codes integration tests (mint DISPLAY, rotate, cross-tenant-blocked deactivate) → 34 total integration. `pnpm quality` green end to end (~29s).
+- Manual verification: real headless-Chromium run — empty board renders → a customer joins and is called **without reloading the display** (ticket number + service name appear live) → a full-page PII scan of the rendered board found zero matches for the customer's name/phone → pausing the queue via the staff API updates the board live to "Queue temporarily paused" → an invalid/unrecognized code shows a sensible message instead of hanging forever.
+
 ## Decisions Made
 
 See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
@@ -70,14 +80,15 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 - SSE realtime is in-process (`EventEmitter`) only — correct for single-instance (D-06), but will need a Redis pub/sub swap before horizontal scaling or the future high-volume "flash crowd" workstream (see `docs/roadmap.md`'s future-enhancements section).
 - Testcontainers' Ryuk reaper sidecar hangs in this sandboxed Docker dev environment; `apps/api`'s `test:integration` script sets `TESTCONTAINERS_RYUK_DISABLED=true` to work around it (see `test/jest-integration.config.js` for the full explanation). Not an application bug — purely an environment quirk of this Docker setup.
 - The staff dashboard polls every 3s rather than using SSE — deliberate for MVP simplicity (EventSource can't attach an Authorization header, and a query-string token is a security smell not worth taking on this phase); fine at current staff-tablet counts, worth revisiting if multi-tablet live sync becomes a real complaint.
-- No staff-facing UI yet for creating/managing locations, services, queues, or codes — Phase 5's dashboard assumes these already exist (created via curl/Phase 2-4's APIs in this session's manual testing). A business-admin UI for this is not yet scoped into any phase; flag to the user if it's wanted before Phase 11 (Business Administration).
+- No staff-facing UI yet for creating/managing locations, services, queues, or codes (including display codes) — Phase 5/6's work assumes these already exist (created via curl/API in this session's manual testing). A business-admin UI for this is not yet scoped into any phase; flag to the user if it's wanted before Phase 11 (Business Administration).
+- No display-picker UI — a business owner points the TV's browser at the specific `/display/{code}` URL directly (bookmarked once). Fine for one screen per location (D-10); would need a picker if a business ever wants several distinct boards.
 
 ## Next Task
 
-**Phase 6 — Public Display**, per `docs/roadmap.md`:
+**Phase 7 — Notification Infrastructure**, per `docs/roadmap.md`:
 
-1. The TV screen: ticket number only, **no names, no PII** (C-01) — this is the one screen in the whole product that must never show a customer's name, phone, or any of the `StaffQueueEntrySummary` fields Phase 5 just added.
-2. Fullscreen, auto-reconnect design — runs as a browser tab on whatever screen the business already has (ADR-009), so it needs to survive being left open unattended for hours (a laptop sleep/wake, a network blip) without needing a manual refresh.
-3. Live-updating — reuse the existing `QueueEventsService`/SSE pattern from Phase 4's customer ticket page (public, unauthenticated is fine here — the display shows nothing sensitive) rather than inventing a new realtime mechanism.
+1. Outbox pattern — a notification is written to its own table in the same transaction as the queue mutation that triggers it (G-31's threshold evaluation), then sent asynchronously; a queue operation (join, call-next, etc.) must never block on — or fail because of — the notification provider being slow or down.
+2. `MockNotificationProvider` — same reasoning as `ConsoleMailService`: prove the pattern and the business logic (thresholds, exactly-once delivery) before Phase 8 wires up a real provider (Pingram).
+3. **This completes the plan's original first vertical slice** (§98/C-03): scan → join → position updates → staff calls → customer notified (mock) → complete. Worth an explicit end-to-end check once built, not just unit tests on the outbox mechanics.
 
-Acceptance (per roadmap): display runs independently, updates live, survives a network blip, exposes nothing identifying.
+Acceptance (per roadmap): a called customer receives exactly one (mocked) notification; duplicate processing doesn't duplicate it; queue operations don't depend on the provider being up.

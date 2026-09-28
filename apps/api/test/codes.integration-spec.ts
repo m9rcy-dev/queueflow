@@ -167,4 +167,110 @@ describe("Codes / QR resolver (integration)", () => {
       .set("Authorization", `Bearer ${staffAuth.body.accessToken}`)
       .expect(403);
   });
+
+  it("mints a DISPLAY-context code, which the QUEUE resolver rejects the same as any unknown code (Phase 6, G-07)", async () => {
+    const owner = await signUpAndVerify("code-owner-e@example.com", "Tenant E", "Owner E");
+    const location = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ name: "E's Shop", timezone: "Pacific/Auckland" })
+      .expect(201);
+    const queue = await request(app.getHttpServer())
+      .post("/tenants/me/queues")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ locationId: location.body.id, name: "E's Queue" })
+      .expect(201);
+
+    const displayCode = await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queue.body.id}/codes`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ contextType: "DISPLAY" })
+      .expect(201);
+    expect(displayCode.body.contextType).toBe("DISPLAY");
+
+    // The QUEUE join-flow resolver must never accept a DISPLAY code — same
+    // uniform 404 as an unknown/deactivated code, no distinguishing signal.
+    await request(app.getHttpServer())
+      .get(`/public/codes/${displayCode.body.publicCode}`)
+      .expect(404);
+  });
+
+  it("rotation: deactivating a code makes it stop resolving, without affecting other codes for the same queue", async () => {
+    const owner = await signUpAndVerify("code-owner-f@example.com", "Tenant F", "Owner F");
+    const location = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ name: "F's Shop", timezone: "Pacific/Auckland" })
+      .expect(201);
+    const service = await request(app.getHttpServer())
+      .post("/tenants/me/services")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ locationId: location.body.id, name: "Haircut", durationMinutes: 20 })
+      .expect(201);
+    const queue = await request(app.getHttpServer())
+      .post("/tenants/me/queues")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ locationId: location.body.id, name: "F's Queue" })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queue.body.id}/services`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ serviceId: service.body.id })
+      .expect(201);
+
+    const staleCode = await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queue.body.id}/codes`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(201);
+    const freshCode = await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queue.body.id}/codes`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(201);
+    const staleCodeDbRow = await prisma.code.findUniqueOrThrow({
+      where: { publicCode: staleCode.body.publicCode },
+    });
+
+    await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queue.body.id}/codes/${staleCodeDbRow.id}/deactivate`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get(`/public/codes/${staleCode.body.publicCode}`)
+      .expect(404);
+    // The other code for the same queue is untouched.
+    await request(app.getHttpServer())
+      .get(`/public/codes/${freshCode.body.publicCode}`)
+      .expect(200);
+  });
+
+  it("blocks deactivating a code belonging to another tenant's queue (404, not a leak)", async () => {
+    const tenantA = await signUpAndVerify("code-owner-g@example.com", "Tenant G", "Owner G");
+    const tenantB = await signUpAndVerify("code-owner-h@example.com", "Tenant H", "Owner H");
+    const location = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${tenantA.accessToken}`)
+      .send({ name: "G's Shop", timezone: "Pacific/Auckland" })
+      .expect(201);
+    const queue = await request(app.getHttpServer())
+      .post("/tenants/me/queues")
+      .set("Authorization", `Bearer ${tenantA.accessToken}`)
+      .send({ locationId: location.body.id, name: "G's Queue" })
+      .expect(201);
+    const code = await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queue.body.id}/codes`)
+      .set("Authorization", `Bearer ${tenantA.accessToken}`)
+      .expect(201);
+    const codeDbRow = await prisma.code.findUniqueOrThrow({
+      where: { publicCode: code.body.publicCode },
+    });
+
+    await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queue.body.id}/codes/${codeDbRow.id}/deactivate`)
+      .set("Authorization", `Bearer ${tenantB.accessToken}`)
+      .expect(404);
+
+    // Still resolves — tenant B's attempt had no effect.
+    await request(app.getHttpServer()).get(`/public/codes/${code.body.publicCode}`).expect(200);
+  });
 });

@@ -18,7 +18,14 @@ describe("CodesService", () => {
   };
 
   beforeEach(async () => {
-    prisma = { code: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() } };
+    prisma = {
+      code: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+      },
+    };
     queuesService = { findOwnedQueue: jest.fn() };
 
     const module = await Test.createTestingModule({
@@ -50,6 +57,38 @@ describe("CodesService", () => {
       });
       expect(result.publicCode).toBe("ABCD2345");
     });
+
+    it("creates a DISPLAY-context code when asked (Phase 6, G-07)", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue({ id: "queue-1" });
+      prisma.code.create.mockResolvedValue({ ...codeRow, contextType: "DISPLAY" });
+
+      const result = await service.createForQueue(tenantId, "queue-1", "DISPLAY");
+
+      expect(prisma.code.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ contextType: "DISPLAY" }),
+      });
+      expect(result.contextType).toBe("DISPLAY");
+    });
+  });
+
+  describe("deactivate (G-07 rotation)", () => {
+    it("404s if the code doesn't belong to this tenant/queue", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue({ id: "queue-1" });
+      prisma.code.updateMany.mockResolvedValue({ count: 0 });
+      await expect(service.deactivate(tenantId, "queue-1", "code-1")).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it("deactivates a code owned by this tenant/queue", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue({ id: "queue-1" });
+      prisma.code.updateMany.mockResolvedValue({ count: 1 });
+      await service.deactivate(tenantId, "queue-1", "code-1");
+      expect(prisma.code.updateMany).toHaveBeenCalledWith({
+        where: { id: "code-1", tenantId, queueId: "queue-1" },
+        data: { active: false },
+      });
+    });
   });
 
   describe("resolve", () => {
@@ -60,6 +99,15 @@ describe("CodesService", () => {
 
     it("404s for a deactivated code (never distinguishes this from 'unknown')", async () => {
       prisma.code.findUnique.mockResolvedValue({ ...codeRow, active: false });
+      await expect(service.resolve("ABCD2345")).rejects.toThrow(NotFoundException);
+    });
+
+    it("404s for a DISPLAY code — this endpoint only ever resolves QUEUE codes", async () => {
+      prisma.code.findUnique.mockResolvedValue({
+        ...codeRow,
+        contextType: "DISPLAY",
+        queue: { id: "queue-1" },
+      });
       await expect(service.resolve("ABCD2345")).rejects.toThrow(NotFoundException);
     });
 
