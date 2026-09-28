@@ -59,6 +59,7 @@ model Tenant {
   queues        Queue[]
   queueEntries  QueueEntry[]
   codes         Code[]
+  deviceTrusts  DeviceTrust[]
 
   @@map("tenants")
 }
@@ -80,6 +81,16 @@ model TenantUser {
   role      TenantRole
   createdAt DateTime   @default(now())
 
+  // Shared counter-tablet PIN switching (D-03a). Hashed with argon2id
+  // (never plaintext) despite the PIN's low entropy — it's a long-lived
+  // secret, unlike the short-TTL OTP codes above, so it gets the same
+  // hashing budget-terry gives real passwords, not the OTP's fast sha256.
+  // Lockout mirrors the OTP pattern (MAX_VERIFY_ATTEMPTS) but is tracked
+  // per-membership since a shared device serves many staff at once.
+  pinHash           String?
+  pinFailedAttempts Int       @default(0)
+  pinLockedUntil    DateTime?
+
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -88,6 +99,27 @@ model TenantUser {
   @@unique([tenantId, userId])
   @@index([userId])
   @@map("tenant_users")
+}
+
+// Shared counter-tablet trust (D-03a) — "the tablet trusts once" half of
+// the reusable pattern from budget-terry's docs/trusted-device-plan.md,
+// adapted: scoped to a Tenant, not a single User, since one shared device
+// serves many staff who each switch in via their own PIN afterward
+// (staffPinLogin). Same opaque-token-hashed-server-side shape as
+// RefreshToken; rotates on every use (ADR-004's rotation pattern).
+model DeviceTrust {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("device_trusts")
 }
 
 // A pending staff invitation (G-02). Accepting one requires proving control

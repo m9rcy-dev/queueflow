@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import { AuthService } from "./auth.service";
 import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { PinService } from "./pin.service";
 import { TokenService } from "./token.service";
 
 describe("AuthService", () => {
@@ -14,10 +15,12 @@ describe("AuthService", () => {
     loginCode: Record<string, jest.Mock>;
     refreshToken: Record<string, jest.Mock>;
     tenantInvite: Record<string, jest.Mock>;
+    deviceTrust: Record<string, jest.Mock>;
     $transaction: jest.Mock;
   };
   let tokenService: Record<string, jest.Mock>;
   let mailService: Record<string, jest.Mock>;
+  let pinService: Record<string, jest.Mock>;
 
   const user = { id: "user-1", email: "joe@example.com", displayName: "Joe" };
   const tenant = {
@@ -37,6 +40,7 @@ describe("AuthService", () => {
         findUnique: jest.fn(),
         findMany: jest.fn(),
         upsert: jest.fn(),
+        update: jest.fn(),
       },
       loginCode: {
         findFirst: jest.fn(),
@@ -51,6 +55,7 @@ describe("AuthService", () => {
         updateMany: jest.fn(),
       },
       tenantInvite: { findUnique: jest.fn(), update: jest.fn() },
+      deviceTrust: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
       $transaction: jest.fn(),
     };
     tokenService = {
@@ -69,11 +74,21 @@ describe("AuthService", () => {
       generateAccessToken: jest.fn(() => "signed-access-token"),
       generatePendingToken: jest.fn(() => "signed-pending-token"),
       verifyPendingToken: jest.fn(() => ({ sub: user.id, purpose: "tenant-selection" })),
+      generateDeviceTrustToken: jest.fn(() => ({
+        token: "opaque-device-trust-token",
+        tokenHash: "hashed-device-trust",
+        expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+      })),
+      hashDeviceTrustToken: jest.fn(() => "hashed-device-trust"),
     };
     mailService = {
       sendLoginCode: jest.fn(),
       sendInviteCode: jest.fn(),
       sendInviteLink: jest.fn(),
+    };
+    pinService = {
+      hash: jest.fn(async (pin: string) => `hashed-pin-${pin}`),
+      verify: jest.fn(async (hash: string, pin: string) => hash === `hashed-pin-${pin}`),
     };
 
     const module = await Test.createTestingModule({
@@ -82,6 +97,7 @@ describe("AuthService", () => {
         { provide: PrismaService, useValue: prisma },
         { provide: TokenService, useValue: tokenService },
         { provide: MailService, useValue: mailService },
+        { provide: PinService, useValue: pinService },
       ],
     }).compile();
 
@@ -327,6 +343,160 @@ describe("AuthService", () => {
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { tokenHash: "hashed-refresh", revokedAt: null },
         data: { revokedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe("trustDevice (D-03a)", () => {
+    it("creates a DeviceTrust row scoped to the tenant and returns the plaintext token", async () => {
+      const result = await service.trustDevice(tenant.id);
+
+      expect(prisma.deviceTrust.create).toHaveBeenCalledWith({
+        data: {
+          tenantId: tenant.id,
+          tokenHash: "hashed-device-trust",
+          expiresAt: expect.any(Date),
+        },
+      });
+      expect(result.deviceTrustToken).toBe("opaque-device-trust-token");
+    });
+  });
+
+  describe("getDeviceContext (D-03a)", () => {
+    const activeTrust = {
+      id: "trust-1",
+      tenantId: tenant.id,
+      tokenHash: "hashed-device-trust",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 1000),
+    };
+
+    it("rejects an unknown, expired, or revoked trust token", async () => {
+      prisma.deviceTrust.findUnique.mockResolvedValue(null);
+      await expect(service.getDeviceContext("nope")).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("rotates the token and returns the tenant's staff roster with hasPin", async () => {
+      prisma.deviceTrust.findUnique.mockResolvedValue(activeTrust);
+      prisma.$transaction.mockResolvedValue(undefined);
+      prisma.tenant = { ...prisma.tenant, findUniqueOrThrow: jest.fn().mockResolvedValue(tenant) };
+      prisma.tenantUser.findMany.mockResolvedValue([
+        { id: "tu-1", role: "STAFF", pinHash: "some-hash", user: { displayName: "Alice" } },
+        { id: "tu-2", role: "TENANT_OWNER", pinHash: null, user: { displayName: "Joe" } },
+      ]);
+
+      const result = await service.getDeviceContext("presented-token");
+
+      expect(result.deviceTrustToken).toBe("opaque-device-trust-token");
+      expect(result.tenant).toEqual({ id: tenant.id, name: tenant.name });
+      expect(result.staff).toEqual([
+        { tenantUserId: "tu-1", displayName: "Alice", role: "STAFF", hasPin: true },
+        { tenantUserId: "tu-2", displayName: "Joe", role: "TENANT_OWNER", hasPin: false },
+      ]);
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+  });
+
+  describe("staffPinLogin (D-03a)", () => {
+    const activeTrust = {
+      id: "trust-1",
+      tenantId: tenant.id,
+      tokenHash: "hashed-device-trust",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 1000),
+    };
+    const membership = {
+      id: "tu-1",
+      tenantId: tenant.id,
+      role: "STAFF" as const,
+      pinHash: "hashed-pin-4242",
+      pinFailedAttempts: 0,
+      pinLockedUntil: null as Date | null,
+      user,
+      tenant,
+    };
+
+    beforeEach(() => {
+      prisma.deviceTrust.findUnique.mockResolvedValue(activeTrust);
+    });
+
+    it("rejects a device trust token that isn't recognized", async () => {
+      prisma.deviceTrust.findUnique.mockResolvedValue(null);
+      await expect(service.staffPinLogin("nope", "tu-1", "4242")).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it("rejects a tenantUserId belonging to a different tenant than the trusted device", async () => {
+      prisma.tenantUser.findUnique.mockResolvedValue({ ...membership, tenantId: "other-tenant" });
+      await expect(service.staffPinLogin("token", "tu-1", "4242")).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it("rejects when locked out, without even checking the PIN", async () => {
+      prisma.tenantUser.findUnique.mockResolvedValue({
+        ...membership,
+        pinLockedUntil: new Date(Date.now() + 60_000),
+      });
+      await expect(service.staffPinLogin("token", "tu-1", "4242")).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(pinService.verify).not.toHaveBeenCalled();
+    });
+
+    it("rejects an incorrect PIN and records the failed attempt", async () => {
+      prisma.tenantUser.findUnique.mockResolvedValue(membership);
+      await expect(service.staffPinLogin("token", "tu-1", "0000")).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(prisma.tenantUser.update).toHaveBeenCalledWith({
+        where: { id: "tu-1" },
+        data: { pinFailedAttempts: 1 },
+      });
+    });
+
+    it("locks the membership out after the max number of failed attempts", async () => {
+      prisma.tenantUser.findUnique.mockResolvedValue({ ...membership, pinFailedAttempts: 4 });
+      await expect(service.staffPinLogin("token", "tu-1", "0000")).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(prisma.tenantUser.update).toHaveBeenCalledWith({
+        where: { id: "tu-1" },
+        data: { pinFailedAttempts: 5, pinLockedUntil: expect.any(Date) },
+      });
+    });
+
+    it("rejects when no PIN has been set at all", async () => {
+      prisma.tenantUser.findUnique.mockResolvedValue({ ...membership, pinHash: null });
+      await expect(service.staffPinLogin("token", "tu-1", "4242")).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it("issues a normal session and resets the failure counter on a correct PIN", async () => {
+      prisma.tenantUser.findUnique.mockResolvedValue(membership);
+      const result = await service.staffPinLogin("token", "tu-1", "4242");
+
+      expect(prisma.tenantUser.update).toHaveBeenCalledWith({
+        where: { id: "tu-1" },
+        data: { pinFailedAttempts: 0, pinLockedUntil: null },
+      });
+      expect(result.requiresTenantSelection).toBe(false);
+      if (!result.requiresTenantSelection) {
+        expect(result.accessToken).toBe("signed-access-token");
+        expect(result.role).toBe("STAFF");
+      }
+    });
+  });
+
+  describe("setPin", () => {
+    it("hashes and stores the PIN, clearing any prior lockout", async () => {
+      await service.setPin("tu-1", "4242");
+      expect(pinService.hash).toHaveBeenCalledWith("4242");
+      expect(prisma.tenantUser.update).toHaveBeenCalledWith({
+        where: { id: "tu-1" },
+        data: { pinHash: "hashed-pin-4242", pinFailedAttempts: 0, pinLockedUntil: null },
       });
     });
   });

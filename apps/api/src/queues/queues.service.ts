@@ -128,6 +128,32 @@ export class QueuesService {
     return rows.map((row) => row.serviceId);
   }
 
+  /**
+   * What a customer could actually join right now — same filter
+   * CodesService.resolve() applies to the public landing page, exposed
+   * here too so the staff walk-in form offers exactly the same choices
+   * rather than the tenant's whole service catalog (including inactive or
+   * appointment-only services).
+   */
+  async listJoinableServices(
+    tenantId: string,
+    queueId: string,
+  ): Promise<Array<{ id: string; name: string; durationMinutes: number }>> {
+    await this.findOwnedQueue(tenantId, queueId);
+    const rows = await this.prisma.queueService.findMany({
+      where: { queueId },
+      include: { service: true },
+    });
+    return rows
+      .map((row) => row.service)
+      .filter((service) => service.active && service.queueEnabled)
+      .map((service) => ({
+        id: service.id,
+        name: service.name,
+        durationMinutes: service.durationMinutes,
+      }));
+  }
+
   /** Exposed for QueueEntriesService — same ownership-checked lookup, avoids a second, divergent query there. */
   async findOwnedQueue(tenantId: string, queueId: string) {
     const queue = await this.prisma.queue.findFirst({ where: { id: queueId, tenantId } });

@@ -8,16 +8,38 @@ import {
 import type {
   AuthenticatedUser,
   AuthTokens,
+  AuthSuccessResponse,
+  DeviceContextResponse,
   LoginVerifyResponse,
   MembershipSummary,
   TenantSummary,
+  TrustDeviceResponse,
 } from "@queueflow/types";
 import type { BusinessSignupInput } from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { PinService } from "./pin.service";
 import { TokenService } from "./token.service";
 
 const MAX_VERIFY_ATTEMPTS = 5;
+const MAX_PIN_ATTEMPTS = 5;
+const PIN_LOCKOUT_MINUTES = 15;
+
+/** Same generic-failure principle as invalidLoginCode() — never reveals whether the device, the staff member, or the PIN itself was wrong. */
+function invalidPin(): UnauthorizedException {
+  return new UnauthorizedException({
+    code: "INVALID_PIN",
+    message:
+      "Incorrect PIN, or this device isn't recognized. Please try again or sign in normally.",
+  });
+}
+
+function invalidDeviceTrust(): UnauthorizedException {
+  return new UnauthorizedException({
+    code: "INVALID_DEVICE_TRUST",
+    message: "This device is no longer trusted. Please sign in normally.",
+  });
+}
 
 function invalidInviteCode(): UnauthorizedException {
   return new UnauthorizedException({
@@ -51,6 +73,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly tokenService: TokenService,
     private readonly mailService: MailService,
+    private readonly pinService: PinService,
   ) {}
 
   /**
@@ -227,6 +250,104 @@ export class AuthService {
     return { accessToken, refreshToken: generated.token };
   }
 
+  /**
+   * "The tablet trusts once" (D-03a) — an already-authenticated staff
+   * member opts a shared counter device into skipping straight to PIN
+   * switching next time. Scoped to the tenant, not this one user: any
+   * staff member of the same business can PIN-switch in on a device once
+   * it's trusted, that's the whole point of the shared-tablet flow.
+   */
+  async trustDevice(tenantId: string): Promise<TrustDeviceResponse> {
+    const generated = this.tokenService.generateDeviceTrustToken();
+    await this.prisma.deviceTrust.create({
+      data: { tenantId, tokenHash: generated.tokenHash, expiresAt: generated.expiresAt },
+    });
+    return { deviceTrustToken: generated.token, expiresAt: generated.expiresAt.toISOString() };
+  }
+
+  /**
+   * "Who can sign in on this device?" — presented with a trusted device's
+   * token, returns the tenant's staff roster so the client can render a
+   * name-picker before asking for a PIN. Rotates the trust token on every
+   * call (ADR-004's rotation pattern) since presenting it is a genuine use.
+   */
+  async getDeviceContext(deviceTrustToken: string): Promise<DeviceContextResponse> {
+    const trust = await this.findActiveDeviceTrust(deviceTrustToken);
+    const rotatedToken = await this.rotateDeviceTrust(trust);
+
+    const [tenant, memberships] = await Promise.all([
+      this.prisma.tenant.findUniqueOrThrow({ where: { id: trust.tenantId } }),
+      this.prisma.tenantUser.findMany({
+        where: { tenantId: trust.tenantId },
+        include: { user: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+
+    return {
+      deviceTrustToken: rotatedToken,
+      tenant: { id: tenant.id, name: tenant.name },
+      staff: memberships.map((membership) => ({
+        tenantUserId: membership.id,
+        displayName: membership.user.displayName,
+        role: membership.role,
+        hasPin: membership.pinHash !== null,
+      })),
+    };
+  }
+
+  /**
+   * Second half of shift-change switching: a staff member picked their
+   * name off a trusted device and enters their PIN. Every queue action
+   * this session performs will attribute to the returned tenantUserId
+   * (G-18), same as a normal OTP login.
+   */
+  async staffPinLogin(
+    deviceTrustToken: string,
+    tenantUserId: string,
+    pin: string,
+  ): Promise<AuthSuccessResponse> {
+    const trust = await this.findActiveDeviceTrust(deviceTrustToken);
+
+    const membership = await this.prisma.tenantUser.findUnique({
+      where: { id: tenantUserId },
+      include: { user: true, tenant: true },
+    });
+    // The membership must belong to the SAME tenant this device is trusted
+    // for — a device trusted for Tenant A must never authenticate someone
+    // as Tenant B's staff, even if they somehow know a valid tenantUserId.
+    if (!membership || membership.tenantId !== trust.tenantId) {
+      throw invalidPin();
+    }
+    if (membership.pinLockedUntil && membership.pinLockedUntil > new Date()) {
+      throw invalidPin();
+    }
+    if (!membership.pinHash || !(await this.pinService.verify(membership.pinHash, pin))) {
+      await this.recordFailedPinAttempt(membership.id, membership.pinFailedAttempts);
+      throw invalidPin();
+    }
+
+    await this.prisma.tenantUser.update({
+      where: { id: membership.id },
+      data: { pinFailedAttempts: 0, pinLockedUntil: null },
+    });
+
+    return this.issueSession(membership.user, membership.tenant, membership.role);
+  }
+
+  /**
+   * A staff member sets/changes their own PIN for the tenant they're
+   * currently authenticated into — always via a normal (OTP or existing
+   * session) login first, never via the device-trust path itself.
+   */
+  async setPin(tenantUserId: string, pin: string): Promise<void> {
+    const pinHash = await this.pinService.hash(pin);
+    await this.prisma.tenantUser.update({
+      where: { id: tenantUserId },
+      data: { pinHash, pinFailedAttempts: 0, pinLockedUntil: null },
+    });
+  }
+
   async logout(refreshToken: string): Promise<void> {
     const tokenHash = this.tokenService.hashRefreshToken(refreshToken);
     await this.prisma.refreshToken.updateMany({
@@ -299,6 +420,50 @@ export class AuthService {
     });
 
     return this.issueSession(user, invite.tenant, membership.role);
+  }
+
+  private async findActiveDeviceTrust(token: string) {
+    const tokenHash = this.tokenService.hashDeviceTrustToken(token);
+    const trust = await this.prisma.deviceTrust.findUnique({ where: { tokenHash } });
+    if (!trust || trust.revokedAt || trust.expiresAt < new Date()) {
+      throw invalidDeviceTrust();
+    }
+    return trust;
+  }
+
+  /** Rotate: revoke the presented trust token, issue a new one (ADR-004). Returns the new plaintext token. */
+  private async rotateDeviceTrust(trust: { id: string; tenantId: string }): Promise<string> {
+    const generated = this.tokenService.generateDeviceTrustToken();
+    await this.prisma.$transaction([
+      this.prisma.deviceTrust.update({
+        where: { id: trust.id },
+        data: { revokedAt: new Date(), lastUsedAt: new Date() },
+      }),
+      this.prisma.deviceTrust.create({
+        data: {
+          tenantId: trust.tenantId,
+          tokenHash: generated.tokenHash,
+          expiresAt: generated.expiresAt,
+        },
+      }),
+    ]);
+    return generated.token;
+  }
+
+  private async recordFailedPinAttempt(
+    tenantUserId: string,
+    currentAttempts: number,
+  ): Promise<void> {
+    const attempts = currentAttempts + 1;
+    await this.prisma.tenantUser.update({
+      where: { id: tenantUserId },
+      data: {
+        pinFailedAttempts: attempts,
+        ...(attempts >= MAX_PIN_ATTEMPTS && {
+          pinLockedUntil: new Date(Date.now() + PIN_LOCKOUT_MINUTES * 60_000),
+        }),
+      },
+    });
   }
 
   private async findAcceptableInvite(token: string) {

@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import {
   cancelEntrySchema,
+  joinQueueSchema,
   listQueueEntriesQuerySchema,
   type CancelEntryInput,
+  type JoinQueueInput,
   type ListQueueEntriesQuery,
 } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -32,6 +34,16 @@ export class QueueEntriesController {
   @Post("queues/:queueId/call-next")
   callNext(@CurrentUser() user: RequestUser, @Param("queueId") queueId: string) {
     return this.queueEntriesService.callNext(user.tenantId, queueId, user.tenantUserId);
+  }
+
+  /** Staff manually adding a walk-in from the counter (roadmap Phase 5) — same join logic as the QR-scan path, ownership-checked. */
+  @Post("queues/:queueId/entries")
+  addWalkIn(
+    @CurrentUser() user: RequestUser,
+    @Param("queueId") queueId: string,
+    @Body(new ZodValidationPipe(joinQueueSchema)) body: JoinQueueInput,
+  ) {
+    return this.queueEntriesService.addWalkIn(user.tenantId, queueId, body);
   }
 
   @Get("queue-entries/:id")

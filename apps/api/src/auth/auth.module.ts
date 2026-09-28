@@ -6,6 +6,7 @@ import { MailModule } from "../mail/mail.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { JwtStrategy } from "./jwt.strategy";
+import { PinService } from "./pin.service";
 import { TokenService } from "./token.service";
 
 @Module({
@@ -21,7 +22,7 @@ import { TokenService } from "./token.service";
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokenService, JwtStrategy],
+  providers: [AuthService, TokenService, PinService, JwtStrategy],
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}

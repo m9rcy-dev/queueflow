@@ -36,3 +36,15 @@ export interface QueueEntrySummary {
 export interface JoinQueueResponse extends QueueEntrySummary {
   publicToken: string;
 }
+
+/**
+ * The staff dashboard's view (Phase 5) — adds what a customer's own ticket
+ * page has no reason to see: who they are, and which staff member is
+ * currently attributed to this entry (G-18/D-03a's audit requirement).
+ */
+export interface StaffQueueEntrySummary extends QueueEntrySummary {
+  customerName: string;
+  customerPhone: string;
+  assignedStaffId: string | null;
+  assignedStaffName: string | null;
+}

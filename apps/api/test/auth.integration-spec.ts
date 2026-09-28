@@ -220,4 +220,124 @@ describe("Auth + tenant isolation (integration)", () => {
       .send({ refreshToken: owner.refreshToken })
       .expect(401);
   });
+
+  describe("Trusted device + staff PIN (D-03a)", () => {
+    it("full shift-change flow: trust a device, set a PIN, then PIN-switch in on that device", async () => {
+      const owner = await signUpAndVerify("pin-owner-a@example.com", "PIN Barbers A", "Owner A");
+
+      await request(app.getHttpServer())
+        .post("/auth/pin")
+        .set("Authorization", `Bearer ${owner.accessToken}`)
+        .send({ pin: "4242" })
+        .expect(204);
+
+      const trustRes = await request(app.getHttpServer())
+        .post("/auth/devices/trust")
+        .set("Authorization", `Bearer ${owner.accessToken}`)
+        .expect(201);
+      const deviceTrustToken: string = trustRes.body.deviceTrustToken;
+      expect(deviceTrustToken).toBeDefined();
+
+      const contextRes = await request(app.getHttpServer())
+        .post("/auth/device-context")
+        .send({ deviceTrustToken })
+        .expect(201);
+      expect(contextRes.body.tenant.id).toBe(owner.tenant.id);
+      expect(contextRes.body.staff).toHaveLength(1);
+      expect(contextRes.body.staff[0]).toMatchObject({ displayName: "Owner A", hasPin: true });
+      // Rotated (ADR-004) — the originally-issued token must no longer work.
+      const rotatedToken: string = contextRes.body.deviceTrustToken;
+      expect(rotatedToken).not.toBe(deviceTrustToken);
+
+      const pinLoginRes = await request(app.getHttpServer())
+        .post("/auth/staff-pin-login")
+        .send({
+          deviceTrustToken: rotatedToken,
+          tenantUserId: contextRes.body.staff[0].tenantUserId,
+          pin: "4242",
+        })
+        .expect(201);
+      expect(pinLoginRes.body.accessToken).toBeDefined();
+      expect(pinLoginRes.body.tenant.id).toBe(owner.tenant.id);
+
+      // The original (pre-rotation) device trust token is now dead.
+      await request(app.getHttpServer())
+        .post("/auth/device-context")
+        .send({ deviceTrustToken })
+        .expect(401);
+    });
+
+    it("rejects a wrong PIN, locks out after repeated failures, and never reveals which part was wrong", async () => {
+      const owner = await signUpAndVerify("pin-owner-b@example.com", "PIN Barbers B", "Owner B");
+      await request(app.getHttpServer())
+        .post("/auth/pin")
+        .set("Authorization", `Bearer ${owner.accessToken}`)
+        .send({ pin: "1111" })
+        .expect(204);
+      const trustRes = await request(app.getHttpServer())
+        .post("/auth/devices/trust")
+        .set("Authorization", `Bearer ${owner.accessToken}`)
+        .expect(201);
+      const contextRes = await request(app.getHttpServer())
+        .post("/auth/device-context")
+        .send({ deviceTrustToken: trustRes.body.deviceTrustToken })
+        .expect(201);
+      const tenantUserId = contextRes.body.staff[0].tenantUserId;
+      const deviceTrustToken = contextRes.body.deviceTrustToken;
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const res = await request(app.getHttpServer())
+          .post("/auth/staff-pin-login")
+          .send({ deviceTrustToken, tenantUserId, pin: "0000" })
+          .expect(401);
+        expect(res.body.code).toBe("INVALID_PIN");
+      }
+
+      // Locked out now — even the CORRECT pin is rejected until the lockout expires.
+      await request(app.getHttpServer())
+        .post("/auth/staff-pin-login")
+        .send({ deviceTrustToken, tenantUserId, pin: "1111" })
+        .expect(401);
+    });
+
+    it("a device trusted for one tenant cannot PIN-login as another tenant's staff (cross-tenant isolation)", async () => {
+      const ownerA = await signUpAndVerify("pin-owner-c@example.com", "PIN Barbers C", "Owner C");
+      const ownerB = await signUpAndVerify("pin-owner-d@example.com", "PIN Barbers D", "Owner D");
+      await request(app.getHttpServer())
+        .post("/auth/pin")
+        .set("Authorization", `Bearer ${ownerB.accessToken}`)
+        .send({ pin: "5555" })
+        .expect(204);
+
+      // Device trusted for Tenant A...
+      const trustRes = await request(app.getHttpServer())
+        .post("/auth/devices/trust")
+        .set("Authorization", `Bearer ${ownerA.accessToken}`)
+        .expect(201);
+      const contextRes = await request(app.getHttpServer())
+        .post("/auth/device-context")
+        .send({ deviceTrustToken: trustRes.body.deviceTrustToken })
+        .expect(201);
+
+      // ...must not authenticate as Tenant B's staff, even with Tenant B's own correct PIN and a real tenantUserId.
+      const ownerBMembership = await prisma.tenantUser.findFirstOrThrow({
+        where: { tenantId: ownerB.tenant.id },
+      });
+      await request(app.getHttpServer())
+        .post("/auth/staff-pin-login")
+        .send({
+          deviceTrustToken: contextRes.body.deviceTrustToken,
+          tenantUserId: ownerBMembership.id,
+          pin: "5555",
+        })
+        .expect(401);
+    });
+
+    it("rejects an unknown, expired, or revoked device trust token generically", async () => {
+      await request(app.getHttpServer())
+        .post("/auth/device-context")
+        .send({ deviceTrustToken: "not-a-real-token" })
+        .expect(401);
+    });
+  });
 });

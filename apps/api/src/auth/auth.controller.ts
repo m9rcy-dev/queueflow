@@ -1,17 +1,24 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import {
   businessSignupSchema,
+  deviceContextSchema,
   logoutSchema,
   refreshTokenSchema,
   selectTenantSchema,
   requestLoginCodeSchema,
+  setPinSchema,
+  staffPinLoginSchema,
   verifyInviteSchema,
   verifyLoginCodeSchema,
   type BusinessSignupInput,
+  type DeviceContextInput,
   type LogoutInput,
   type RefreshTokenInput,
   type RequestLoginCodeInput,
   type SelectTenantInput,
+  type SetPinInput,
+  type StaffPinLoginInput,
   type VerifyInviteInput,
   type VerifyLoginCodeInput,
 } from "@queueflow/validation";
@@ -74,6 +81,38 @@ export class AuthController {
   @Get("me")
   me(@CurrentUser() user: RequestUser): RequestUser {
     return user;
+  }
+
+  /** "Trust this device" (D-03a) — an already-logged-in staff member opts a shared counter tablet into PIN switching. */
+  @Post("devices/trust")
+  trustDevice(@CurrentUser() user: RequestUser) {
+    return this.authService.trustDevice(user.tenantId);
+  }
+
+  /** Presented with a trusted device's token, returns who can PIN-switch in on it (D-03a). Public — no session exists yet at this point. */
+  @Public()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post("device-context")
+  deviceContext(@Body(new ZodValidationPipe(deviceContextSchema)) body: DeviceContextInput) {
+    return this.authService.getDeviceContext(body.deviceTrustToken);
+  }
+
+  /** Second half of shift-change switching — a staff member's PIN, checked against a trusted device (D-03a). */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("staff-pin-login")
+  staffPinLogin(@Body(new ZodValidationPipe(staffPinLoginSchema)) body: StaffPinLoginInput) {
+    return this.authService.staffPinLogin(body.deviceTrustToken, body.tenantUserId, body.pin);
+  }
+
+  /** Sets/changes the current staff member's own PIN for quick device switching (D-03a). */
+  @Post("pin")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setPin(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(setPinSchema)) body: SetPinInput,
+  ): Promise<void> {
+    await this.authService.setPin(user.tenantUserId, body.pin);
   }
 
   @Public()

@@ -160,6 +160,75 @@ describe("QueueEntriesService", () => {
     });
   });
 
+  describe("addWalkIn — staff manually adding a customer (roadmap Phase 5)", () => {
+    const joinInput = {
+      serviceId: "svc-1",
+      customerName: "Alice",
+      customerPhone: "0211234567",
+    };
+
+    it("404s for a queue owned by another tenant, same as any other staff-authenticated action", async () => {
+      queuesService.findOwnedQueue.mockRejectedValue(new NotFoundException());
+      await expect(service.addWalkIn(tenantId, "queue-1", joinInput)).rejects.toThrow(
+        NotFoundException,
+      );
+      // Never reaches the join logic (and therefore never touches the DB) once ownership fails.
+      expect(prisma.queue.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("delegates to the same join logic once ownership is confirmed", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue(queueRow);
+      prisma.queue.findUnique.mockResolvedValue(queueRow);
+      prisma.queueEntry.findUnique.mockResolvedValue(null);
+      prisma.queueService.findUnique.mockResolvedValue({
+        service: { active: true, queueEnabled: true, durationMinutes: 20 },
+      });
+      prisma.customer.upsert.mockResolvedValue({ id: "cust-1" });
+      prisma.queueEntry.count.mockResolvedValue(0);
+      prisma.queueTicketCounter.upsert.mockResolvedValue({ lastNumber: 7 });
+      prisma.queueEntry.create.mockResolvedValue({ ...entry, ticketNumber: 7 });
+
+      const result = await service.addWalkIn(tenantId, "queue-1", joinInput);
+
+      expect(result.ticketNumber).toBe(7);
+      expect(result.publicToken).toBeDefined();
+    });
+  });
+
+  describe("staff-facing summaries include customer and assigned-staff identity (G-18)", () => {
+    it("list() enriches every entry with the customer's name and the assigned staff member's name", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue(queueRow);
+      const richEntry = {
+        ...entry,
+        status: "CALLED",
+        service: { durationMinutes: 20 },
+        customer: { firstName: "Alice", phoneE164: "+64211234567" },
+        assignedStaff: { id: "tu-1", user: { displayName: "Bob the Barber" } },
+      };
+      prisma.queueEntry.findMany.mockResolvedValue([richEntry]);
+
+      const [result] = await service.list(tenantId, "queue-1");
+
+      expect(result.customerName).toBe("Alice");
+      expect(result.customerPhone).toBe("+64211234567");
+      expect(result.assignedStaffId).toBe("tu-1");
+      expect(result.assignedStaffName).toBe("Bob the Barber");
+    });
+
+    it("falls back gracefully when there's no customer or assigned-staff relation yet", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue(queueRow);
+      prisma.queueEntry.findMany.mockResolvedValue([
+        { ...entry, service: { durationMinutes: 20 }, customer: null, assignedStaff: null },
+      ]);
+
+      const [result] = await service.list(tenantId, "queue-1");
+
+      expect(result.customerName).toBe("Walk-in");
+      expect(result.assignedStaffId).toBeNull();
+      expect(result.assignedStaffName).toBeNull();
+    });
+  });
+
   describe("callNext — the concurrency-critical operation (ADR-006)", () => {
     it("rejects calling next on a non-ACTIVE queue", async () => {
       queuesService.findOwnedQueue.mockResolvedValue({ ...queueRow, status: "CLOSED" });
@@ -190,6 +259,9 @@ describe("QueueEntriesService", () => {
         };
         return cb(tx);
       });
+      // callNext re-fetches the staff-rich summary for its response.
+      prisma.queueEntry.findFirst.mockResolvedValue({ ...entry, status: "CALLED" });
+      prisma.queue.findUniqueOrThrow.mockResolvedValue(queueRow);
 
       const result = await service.callNext(tenantId, "queue-1", "staff-1");
 

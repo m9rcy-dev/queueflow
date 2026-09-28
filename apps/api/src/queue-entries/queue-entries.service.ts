@@ -1,5 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import type { JoinQueueResponse, QueueEntryStatus, QueueEntrySummary } from "@queueflow/types";
+import type {
+  JoinQueueResponse,
+  QueueEntryStatus,
+  QueueEntrySummary,
+  StaffQueueEntrySummary,
+} from "@queueflow/types";
 import type { JoinQueueInput } from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
@@ -24,6 +29,11 @@ type EntryRow = {
   completedAt: Date | null;
   cancelledAt: Date | null;
   publicToken: string;
+};
+
+type StaffEntryRow = EntryRow & {
+  customer: { firstName: string | null; phoneE164: string } | null;
+  assignedStaff: { id: string; user: { displayName: string } } | null;
 };
 
 /**
@@ -158,9 +168,24 @@ export class QueueEntriesService {
     return this.toJoinResponse(entry, await this.computePosition(entry, queue.servingCapacity));
   }
 
-  async getByIdForTenant(tenantId: string, entryId: string): Promise<QueueEntrySummary> {
-    const entry = await this.findOwnedEntry(tenantId, entryId);
-    return this.toSummary(
+  /**
+   * Staff manually adding a walk-in from the counter (roadmap Phase 5) —
+   * identical join logic, ownership-checked first since there's now an
+   * authenticated tenant caller instead of an anonymous scan.
+   */
+  async addWalkIn(
+    tenantId: string,
+    queueId: string,
+    input: JoinQueueInput,
+  ): Promise<JoinQueueResponse> {
+    await this.queuesService.findOwnedQueue(tenantId, queueId);
+    return this.join(queueId, input);
+  }
+
+  /** Staff-facing single-entry lookup — includes customer identity and the acting staff member (G-18), never exposed on the public/customer routes. */
+  async getByIdForTenant(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
+    const entry = await this.findOwnedStaffEntry(tenantId, entryId);
+    return this.toStaffSummary(
       entry,
       await this.computePosition(entry, await this.servingCapacityFor(entry.queueId)),
     );
@@ -181,7 +206,7 @@ export class QueueEntriesService {
     tenantId: string,
     queueId: string,
     status?: QueueEntryStatus,
-  ): Promise<QueueEntrySummary[]> {
+  ): Promise<StaffQueueEntrySummary[]> {
     const queue = await this.queuesService.findOwnedQueue(tenantId, queueId);
     // Loaded once, with each entry's own service duration, so position and
     // estimated-wait can be computed for the whole batch without an N+1
@@ -191,10 +216,14 @@ export class QueueEntriesService {
     const entries = await this.prisma.queueEntry.findMany({
       where: { queueId, ...(status && { status }) },
       orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
-      include: { service: { select: { durationMinutes: true } } },
+      include: {
+        service: { select: { durationMinutes: true } },
+        customer: { select: { firstName: true, phoneE164: true } },
+        assignedStaff: { include: { user: { select: { displayName: true } } } },
+      },
     });
     return entries.map((entry) =>
-      this.toSummary(entry, this.computePositionSync(entry, entries, queue.servingCapacity)),
+      this.toStaffSummary(entry, this.computePositionSync(entry, entries, queue.servingCapacity)),
     );
   }
 
@@ -210,7 +239,7 @@ export class QueueEntriesService {
     tenantId: string,
     queueId: string,
     staffTenantUserId: string,
-  ): Promise<QueueEntrySummary> {
+  ): Promise<StaffQueueEntrySummary> {
     const queue = await this.queuesService.findOwnedQueue(tenantId, queueId);
     if (queue.status !== "ACTIVE") {
       throw new ConflictException({
@@ -245,49 +274,54 @@ export class QueueEntriesService {
       throw new NotFoundException({ code: "QUEUE_EMPTY", message: "No one is waiting." });
     }
     this.queueEvents.emitQueueChanged(queueId);
-    return this.toSummary(updated, { position: null, estimatedWaitMinutes: null });
+    return this.getByIdForTenant(tenantId, updated.id);
   }
 
-  async start(tenantId: string, entryId: string): Promise<QueueEntrySummary> {
-    return this.transition(tenantId, entryId, ["CALLED"], {
+  async start(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
+    await this.transition(tenantId, entryId, ["CALLED"], {
       status: "SERVING",
       startedAt: new Date(),
     });
+    return this.getByIdForTenant(tenantId, entryId);
   }
 
-  async complete(tenantId: string, entryId: string): Promise<QueueEntrySummary> {
-    return this.transition(tenantId, entryId, ["SERVING"], {
+  async complete(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
+    await this.transition(tenantId, entryId, ["SERVING"], {
       status: "COMPLETED",
       completedAt: new Date(),
     });
+    return this.getByIdForTenant(tenantId, entryId);
   }
 
   /** Temporarily out of active ordering — `requeue` is the way back in (G-15). */
-  async skip(tenantId: string, entryId: string): Promise<QueueEntrySummary> {
-    return this.transition(tenantId, entryId, ["WAITING"], { status: "SKIPPED" });
+  async skip(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
+    await this.transition(tenantId, entryId, ["WAITING"], { status: "SKIPPED" });
+    return this.getByIdForTenant(tenantId, entryId);
   }
 
   /**
    * Same ticket number, fresh `joinedAt` — re-enters at the back of the
    * current line rather than its old spot (G-15's explicit resolution).
    */
-  async requeue(tenantId: string, entryId: string): Promise<QueueEntrySummary> {
-    return this.transition(tenantId, entryId, ["SKIPPED"], {
+  async requeue(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
+    await this.transition(tenantId, entryId, ["SKIPPED"], {
       status: "WAITING",
       joinedAt: new Date(),
     });
+    return this.getByIdForTenant(tenantId, entryId);
   }
 
   async cancelByStaff(
     tenantId: string,
     entryId: string,
     reason?: string,
-  ): Promise<QueueEntrySummary> {
-    return this.transition(tenantId, entryId, ["WAITING", "CALLED"], {
+  ): Promise<StaffQueueEntrySummary> {
+    await this.transition(tenantId, entryId, ["WAITING", "CALLED"], {
       status: "CANCELLED",
       cancelledAt: new Date(),
       cancellationReason: reason ?? null,
     });
+    return this.getByIdForTenant(tenantId, entryId);
   }
 
   /** The customer's own "Leave Queue" (plan §24) — same operation, reached via public token instead of a tenant-authenticated route. */
@@ -303,8 +337,9 @@ export class QueueEntriesService {
     });
   }
 
-  async markNoShow(tenantId: string, entryId: string): Promise<QueueEntrySummary> {
-    return this.transition(tenantId, entryId, ["CALLED"], { status: "NO_SHOW" });
+  async markNoShow(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
+    await this.transition(tenantId, entryId, ["CALLED"], { status: "NO_SHOW" });
+    return this.getByIdForTenant(tenantId, entryId);
   }
 
   /**
@@ -312,7 +347,7 @@ export class QueueEntriesService {
    * stays CALLED. Actual notification delivery is Phase 7's job; this just
    * enforces the per-queue recall cap synchronously.
    */
-  async recall(tenantId: string, entryId: string): Promise<QueueEntrySummary> {
+  async recall(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
     const entry = await this.findOwnedEntry(tenantId, entryId);
     if (entry.status !== "CALLED") {
       throw new ConflictException({
@@ -327,14 +362,14 @@ export class QueueEntriesService {
         message: "Maximum recall attempts reached for this ticket.",
       });
     }
-    const updated = await this.prisma.queueEntry.update({
+    await this.prisma.queueEntry.update({
       where: { id: entryId },
       data: { recallCount: { increment: 1 } },
     });
     // Doesn't change status or anyone else's position, but the entry's own
     // watcher (if any) should still see the updated recallCount live.
     this.queueEvents.emitQueueChanged(entry.queueId);
-    return this.toSummary(updated, { position: null, estimatedWaitMinutes: null });
+    return this.getByIdForTenant(tenantId, entryId);
   }
 
   private async transition(
@@ -360,13 +395,39 @@ export class QueueEntriesService {
         message: `Cannot perform this action — current status is ${existing.status}.`,
       });
     }
-    const summary = await this.getByIdForTenant(tenantId, entryId);
+    // Deliberately the plain (non-staff) shape here, never the rich one —
+    // this helper is shared with cancelByPublicToken, which must never
+    // hand a customer back another person's name or the assigned staff
+    // member's name. Staff-facing callers re-fetch via getByIdForTenant
+    // immediately after calling this.
+    const entry = await this.findOwnedEntry(tenantId, entryId);
+    const summary = this.toSummary(
+      entry,
+      await this.computePosition(entry, await this.servingCapacityFor(entry.queueId)),
+    );
     this.queueEvents.emitQueueChanged(summary.queueId);
     return summary;
   }
 
   private async findOwnedEntry(tenantId: string, entryId: string): Promise<EntryRow> {
     const entry = await this.prisma.queueEntry.findFirst({ where: { id: entryId, tenantId } });
+    if (!entry) {
+      throw new NotFoundException({
+        code: "QUEUE_ENTRY_NOT_FOUND",
+        message: "Queue entry not found.",
+      });
+    }
+    return entry;
+  }
+
+  private async findOwnedStaffEntry(tenantId: string, entryId: string): Promise<StaffEntryRow> {
+    const entry = await this.prisma.queueEntry.findFirst({
+      where: { id: entryId, tenantId },
+      include: {
+        customer: { select: { firstName: true, phoneE164: true } },
+        assignedStaff: { include: { user: { select: { displayName: true } } } },
+      },
+    });
     if (!entry) {
       throw new NotFoundException({
         code: "QUEUE_ENTRY_NOT_FOUND",
@@ -451,6 +512,19 @@ export class QueueEntriesService {
       startedAt: entry.startedAt?.toISOString() ?? null,
       completedAt: entry.completedAt?.toISOString() ?? null,
       cancelledAt: entry.cancelledAt?.toISOString() ?? null,
+    };
+  }
+
+  private toStaffSummary(
+    entry: StaffEntryRow,
+    positionInfo: { position: number | null; estimatedWaitMinutes: number | null },
+  ): StaffQueueEntrySummary {
+    return {
+      ...this.toSummary(entry, positionInfo),
+      customerName: entry.customer?.firstName ?? "Walk-in",
+      customerPhone: entry.customer?.phoneE164 ?? "",
+      assignedStaffId: entry.assignedStaff?.id ?? null,
+      assignedStaffName: entry.assignedStaff?.user.displayName ?? null,
     };
   }
 

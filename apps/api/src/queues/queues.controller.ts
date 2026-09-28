@@ -79,4 +79,10 @@ export class QueuesController {
   listServices(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     return this.queuesService.listServiceIds(user.tenantId, id);
   }
+
+  /** For the staff walk-in form's service picker — same joinable-now filter as the public QR landing page. */
+  @Get(":id/joinable-services")
+  listJoinableServices(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.queuesService.listJoinableServices(user.tenantId, id);
+  }
 }

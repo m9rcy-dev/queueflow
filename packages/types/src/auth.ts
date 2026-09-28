@@ -60,3 +60,28 @@ export interface InviteSummary {
   acceptedAt: string | null;
   revokedAt: string | null;
 }
+
+/**
+ * Shared counter-tablet trust + PIN switching (D-03a). "Trust this device"
+ * (an already-logged-in staff member opts in) returns a `TrustDeviceResponse`;
+ * on every subsequent app load, the stored token is exchanged via
+ * device-context for the list of staff who can PIN-switch in on it.
+ */
+export interface TrustDeviceResponse {
+  deviceTrustToken: string;
+  expiresAt: string;
+}
+
+export interface DeviceStaffOption {
+  tenantUserId: string;
+  displayName: string;
+  role: TenantRole;
+  hasPin: boolean;
+}
+
+export interface DeviceContextResponse {
+  /** Rotated on every call (ADR-004's rotation pattern) — always persist this one, not the token that was sent. */
+  deviceTrustToken: string;
+  tenant: { id: string; name: string };
+  staff: DeviceStaffOption[];
+}

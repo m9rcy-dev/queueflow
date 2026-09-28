@@ -47,3 +47,23 @@ export const verifyInviteSchema = z.object({
   code: otpCodeSchema,
 });
 export type VerifyInviteInput = z.infer<typeof verifyInviteSchema>;
+
+/** 4-6 digit PIN (D-03a) — short and typable on a shared counter tablet, not a password. */
+const pinSchema = z.string().regex(/^\d{4,6}$/, "PIN must be 4-6 digits");
+
+export const setPinSchema = z.object({
+  pin: pinSchema,
+});
+export type SetPinInput = z.infer<typeof setPinSchema>;
+
+export const deviceContextSchema = z.object({
+  deviceTrustToken: z.string().min(1),
+});
+export type DeviceContextInput = z.infer<typeof deviceContextSchema>;
+
+export const staffPinLoginSchema = z.object({
+  deviceTrustToken: z.string().min(1),
+  tenantUserId: z.string().uuid(),
+  pin: pinSchema,
+});
+export type StaffPinLoginInput = z.infer<typeof staffPinLoginSchema>;

@@ -292,4 +292,64 @@ describe("Queue domain (integration)", () => {
     const row = await prisma.queueEntry.findUniqueOrThrow({ where: { id: entry.body.id } });
     expect(row.cancellationReason).toBe("changed my mind");
   });
+
+  it("staff can manually add a walk-in, which then shows up with customer identity and, once called, the acting staff member's name (Phase 5)", async () => {
+    const owner = await signUpAndVerify("q-owner-i@example.com", "Walkin Co", "Owner I");
+    const { queueId, serviceId } = await setUpQueue(owner.accessToken);
+
+    const walkIn = await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queueId}/entries`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ serviceId, customerName: "Walk-in Wendy", customerPhone: "0219998888" })
+      .expect(201);
+    expect(walkIn.body.ticketNumber).toBe(1);
+    expect(walkIn.body.publicToken).toBeDefined();
+
+    const list = await request(app.getHttpServer())
+      .get(`/tenants/me/queues/${queueId}/entries`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(200);
+    expect(list.body[0]).toMatchObject({
+      customerName: "Walk-in Wendy",
+      assignedStaffId: null,
+      assignedStaffName: null,
+    });
+
+    const called = await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queueId}/call-next`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(201);
+    expect(called.body.assignedStaffName).toBe("Owner I");
+
+    // The public/customer route must never see the staff member's name or the customer's own identity echoed back this way.
+    const publicView = await request(app.getHttpServer())
+      .get(`/public/queue-entries/${walkIn.body.publicToken}`)
+      .expect(200);
+    expect(publicView.body.assignedStaffName).toBeUndefined();
+    expect(publicView.body.customerName).toBeUndefined();
+  });
+
+  it("a walk-in cannot be added to another tenant's queue", async () => {
+    const tenantA = await signUpAndVerify("q-owner-j@example.com", "Tenant J", "Owner J");
+    const tenantB = await signUpAndVerify("q-owner-k@example.com", "Tenant K", "Owner K");
+    const { queueId, serviceId } = await setUpQueue(tenantA.accessToken);
+
+    await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queueId}/entries`)
+      .set("Authorization", `Bearer ${tenantB.accessToken}`)
+      .send({ serviceId, customerName: "Intruder", customerPhone: "0210000000" })
+      .expect(404);
+  });
+
+  it("lists only the services a queue can actually accept right now (joinable-services), matching the public resolver's own filter", async () => {
+    const owner = await signUpAndVerify("q-owner-l@example.com", "Filter Co", "Owner L");
+    const { queueId, serviceId } = await setUpQueue(owner.accessToken);
+
+    const res = await request(app.getHttpServer())
+      .get(`/tenants/me/queues/${queueId}/joinable-services`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(200);
+
+    expect(res.body).toEqual([{ id: serviceId, name: "Haircut", durationMinutes: 20 }]);
+  });
 });

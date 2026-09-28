@@ -122,13 +122,23 @@ against an unclean process kill, not normal cleanup.
 
 ### Phase 5 — Staff Queue UI
 
+**Status: ✅ Done** (2026-09-28)
+
 Staff device: queue view, Call Next, Start, Complete, Skip/Requeue, No Show, Recall, Cancel, manually
-add a walk-in. **Trusted device + per-staff PIN lands here** (D-03a) — this is the first phase where a
-real shared counter device exists, so it's the natural point to build shift-change switching rather
-than front-loading it into Phase 1.
+add a walk-in. **Trusted device + per-staff PIN** (D-03a): `TenantUser.pinHash` (argon2id) and a new
+tenant-scoped `DeviceTrust` model (same opaque-token-hashed-server-side shape as `RefreshToken`,
+rotating on every use) — a shared tablet trusts once (`POST /auth/devices/trust`), then any staff
+member picks their name off the roster (`POST /auth/device-context`) and PIN-switches in
+(`POST /auth/staff-pin-login`), with a 5-attempt/15-minute lockout. Every queue action now shows the
+acting staff member's name (`StaffQueueEntrySummary`, staff-routes-only — verified the public/customer
+routes still expose neither that nor the customer's own identity). First-ever web UI for Phase 1's OTP
+login (`/admin/login`), a PIN setup page, and the queue dashboard itself (3s-polled, not SSE — see
+Known Issues).
 
 **Acceptance:** staff can operate the complete queue lifecycle from one device; every action attributes
-to the acting staff member; concurrency tests pass.
+to the acting staff member; concurrency tests pass. Verified via a real headless-Chromium run: OTP
+login → dashboard → add walk-in → Call Next (live attribution shown) → Start → Complete → set PIN →
+trust device → log out → PIN-switch back in. 102 unit + 31 integration tests, `pnpm quality` green.
 
 ### Phase 6 — Public Display
 

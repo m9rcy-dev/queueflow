@@ -7,6 +7,7 @@ import type { TenantRole } from "@queueflow/types";
 const LOGIN_CODE_TTL_MINUTES = 10;
 const PENDING_TOKEN_TTL = "5m";
 const PENDING_TOKEN_PURPOSE = "tenant-selection";
+const DEVICE_TRUST_TTL_DAYS = 90;
 
 export interface GeneratedLoginCode {
   code: string;
@@ -15,6 +16,12 @@ export interface GeneratedLoginCode {
 }
 
 export interface GeneratedRefreshToken {
+  token: string;
+  tokenHash: string;
+  expiresAt: Date;
+}
+
+export interface GeneratedDeviceTrustToken {
   token: string;
   tokenHash: string;
   expiresAt: Date;
@@ -64,6 +71,22 @@ export class TokenService {
   }
 
   hashRefreshToken(token: string): string {
+    return this.hashSecret(token);
+  }
+
+  /**
+   * The "tablet trusts once" half of D-03a — same opaque-random-plus-hash
+   * shape as a refresh token, but on its own 90-day TTL and its own table
+   * (DeviceTrust), since it survives logout by design (a trusted device
+   * should skip straight to PIN switching even after signing out).
+   */
+  generateDeviceTrustToken(): GeneratedDeviceTrustToken {
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + DEVICE_TRUST_TTL_DAYS * 24 * 60 * 60 * 1000);
+    return { token, tokenHash: this.hashSecret(token), expiresAt };
+  }
+
+  hashDeviceTrustToken(token: string): string {
     return this.hashSecret(token);
   }
 
