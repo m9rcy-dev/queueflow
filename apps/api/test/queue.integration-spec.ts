@@ -26,6 +26,11 @@ describe("Queue domain (integration)", () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     process.env.DATABASE_URL = container.getConnectionUri();
     process.env.JWT_ACCESS_SECRET = "integration-test-secret";
+    // This suite (especially the concurrency test) makes far more join
+    // requests than the real per-route limit (G-40) allows — rate
+    // limiting itself is covered by its own dedicated suite
+    // (rate-limit.integration-spec.ts), not re-tested here.
+    process.env.DISABLE_RATE_LIMITING = "true";
 
     execSync("npx prisma migrate deploy", {
       cwd: `${__dirname}/..`,

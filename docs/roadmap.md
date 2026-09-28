@@ -83,11 +83,42 @@ first, which caught a real bug (`assignedStaffId` was being set to `User.id` ins
 
 ### Phase 4 — Customer Queue UI
 
+**Status: ✅ Done** (2026-09-28)
+
 The anonymous walk-in path: scan a `QUEUE`-context poster with your own phone → name + mobile → join
 → ticket page (showing the QR-as-ticket per §4.5, for recovery) → live position via SSE → leave queue.
-Rate limiting + Turnstile on the join POST (G-40).
+Minimal `Code` model scoped to the `QUEUE` context only (§4.5/ADR-005 — `publicCode → {tenant,
+location, queue, services, capabilities}`), an admin endpoint to mint one per queue
+(`POST /tenants/me/queues/:queueId/codes`), and the public resolver (`GET /public/codes/:code`).
+Realtime via `GET /public/queue-entries/:token/events` (SSE), backed by an in-process `EventEmitter`
+(single-instance per D-06 — Redis pub/sub is the documented future swap once horizontal scaling is
+needed, see the flash-crowd future workstream above); the client always refetches full ticket state on
+every event rather than trusting it caught them all (G-27). IP-based rate limiting on the join POST via
+`@nestjs/throttler` (5/min) — **partial G-40**: this covers the abuse vector with what already exists
+in the stack; Cloudflare Turnstile itself (an external service requiring its own account/site key) was
+not integrated and remains a known gap, tracked below. First real content in `packages/api-client`
+(anonymous public client: `resolveCode`/`joinQueue`/`getTicket`/`cancelTicket`/`ticketEventsUrl`) and
+`packages/ui` (`Button`/`Card`/`Input`/`Badge`, using the design tokens already in
+`apps/web/tailwind.config.ts`). Two Next.js pages: `/q/[code]` (landing + join form) and
+`/queue/t/[token]` (live ticket page, `EventSource`-driven, leave-queue action).
 
-**Acceptance:** the plan's own first vertical-slice customer half works end to end on a real phone.
+**Acceptance:** the plan's own first vertical-slice customer half works end to end on a real phone —
+verified via a real headless-Chromium Playwright run against the actual booted dev stack (not just
+curl): landing page resolves and renders correctly styled, join form submits, redirect to the ticket
+page occurs, a Call Next fired from a separate staff-side API call updates the already-rendered ticket
+page live with no page reload (screenshotted before/after), and Leave Queue cancels and persists
+(cross-checked against `psql`: `CANCELLED` status with `cancelledAt` set). 5 new unit tests (codes
+service) + 84 total unit tests, 4 new integration tests (codes) + 1 new integration test (rate
+limiting, verifies a real 429 after 5 requests) = 24 total integration tests. `pnpm quality` passes end
+to end (build, format, lint, typecheck, unit, integration) in ~24s.
+
+**Known gap carried forward:** Cloudflare Turnstile (G-40's specific bot-check mechanism) is not
+integrated — only IP rate limiting ships. Also surfaced and fixed as an environment issue rather than a
+regression: Testcontainers' Ryuk reaper sidecar hangs in this sandboxed Docker environment (each
+container start then waiting out Jest's 120s hook timeout); `test:integration` now sets
+`TESTCONTAINERS_RYUK_DISABLED=true` (documented in `test/jest-integration.config.js`) — every spec's
+`afterAll` already calls `container.stop()` explicitly, so this only gives up Ryuk's extra safety net
+against an unclean process kill, not normal cleanup.
 
 ### Phase 5 — Staff Queue UI
 

@@ -3,6 +3,7 @@ import type { JoinQueueResponse, QueueEntryStatus, QueueEntrySummary } from "@qu
 import type { JoinQueueInput } from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
+import { QueueEventsService } from "../queue-events/queue-events.service";
 import { normalizePhoneToE164 } from "../common/phone.util";
 import { getLocationServiceDate } from "../common/timezone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
@@ -37,6 +38,7 @@ export class QueueEntriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queuesService: QueuesService,
+    private readonly queueEvents: QueueEventsService,
   ) {}
 
   /**
@@ -147,6 +149,12 @@ export class QueueEntriesService {
       },
     });
 
+    // A new WAITING entry doesn't shift anyone else's position, but every
+    // mutation emits unconditionally rather than trying to be clever about
+    // which ones could matter to existing watchers — simplicity over a
+    // micro-optimization.
+    this.queueEvents.emitQueueChanged(queueId);
+
     return this.toJoinResponse(entry, await this.computePosition(entry, queue.servingCapacity));
   }
 
@@ -236,6 +244,7 @@ export class QueueEntriesService {
     if (!updated) {
       throw new NotFoundException({ code: "QUEUE_EMPTY", message: "No one is waiting." });
     }
+    this.queueEvents.emitQueueChanged(queueId);
     return this.toSummary(updated, { position: null, estimatedWaitMinutes: null });
   }
 
@@ -322,6 +331,9 @@ export class QueueEntriesService {
       where: { id: entryId },
       data: { recallCount: { increment: 1 } },
     });
+    // Doesn't change status or anyone else's position, but the entry's own
+    // watcher (if any) should still see the updated recallCount live.
+    this.queueEvents.emitQueueChanged(entry.queueId);
     return this.toSummary(updated, { position: null, estimatedWaitMinutes: null });
   }
 
@@ -348,7 +360,9 @@ export class QueueEntriesService {
         message: `Cannot perform this action — current status is ${existing.status}.`,
       });
     }
-    return this.getByIdForTenant(tenantId, entryId);
+    const summary = await this.getByIdForTenant(tenantId, entryId);
+    this.queueEvents.emitQueueChanged(summary.queueId);
+    return summary;
   }
 
   private async findOwnedEntry(tenantId: string, entryId: string): Promise<EntryRow> {

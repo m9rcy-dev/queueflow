@@ -58,6 +58,7 @@ model Tenant {
   customers     Customer[]
   queues        Queue[]
   queueEntries  QueueEntry[]
+  codes         Code[]
 
   @@map("tenants")
 }
@@ -296,6 +297,7 @@ model Queue {
   queueServices  QueueService[]
   entries        QueueEntry[]
   ticketCounters QueueTicketCounter[]
+  codes          Code[]
 
   @@index([tenantId])
   @@index([locationId])
@@ -401,4 +403,35 @@ model QueueEntry {
   @@index([queueId, status])
   @@index([customerId])
   @@map("queue_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 (Customer Queue UI, docs/roadmap.md) — the minimal slice of the
+// unified code model (§4.5/ADR-005), scoped to just the QUEUE context type.
+// Deliberately NOT the full model yet — CUSTOMER_IDENTITY/GUEST_CARD/
+// APPOINTMENT_TICKET are Phases 9/10/C's job. A printed/scanned QR resolves
+// through here rather than embedding a raw internal queue UUID.
+// ---------------------------------------------------------------------------
+
+enum CodeContextType {
+  QUEUE
+}
+
+model Code {
+  id          String          @id @default(uuid())
+  tenantId    String
+  // Short, human-typable, printed — NOT a secret (G-39 distinguishes this
+  // from queue_entry.publicToken, which is long and genuinely secret).
+  publicCode  String          @unique
+  contextType CodeContextType
+  queueId     String?
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queue  Queue? @relation(fields: [queueId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("codes")
 }

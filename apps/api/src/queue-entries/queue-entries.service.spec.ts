@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import { QueueEntriesService } from "./queue-entries.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
+import { QueueEventsService } from "../queue-events/queue-events.service";
 
 describe("QueueEntriesService", () => {
   let service: QueueEntriesService;
@@ -15,6 +16,7 @@ describe("QueueEntriesService", () => {
     $transaction: jest.Mock;
   };
   let queuesService: { findOwnedQueue: jest.Mock };
+  let queueEvents: { emitQueueChanged: jest.Mock };
 
   const tenantId = "tenant-1";
   const queueRow = {
@@ -62,12 +64,14 @@ describe("QueueEntriesService", () => {
       $transaction: jest.fn(),
     };
     queuesService = { findOwnedQueue: jest.fn() };
+    queueEvents = { emitQueueChanged: jest.fn() };
 
     const module = await Test.createTestingModule({
       providers: [
         QueueEntriesService,
         { provide: PrismaService, useValue: prisma },
         { provide: QueuesService, useValue: queuesService },
+        { provide: QueueEventsService, useValue: queueEvents },
       ],
     }).compile();
 
@@ -152,6 +156,7 @@ describe("QueueEntriesService", () => {
       expect(result.ticketNumber).toBe(5);
       expect(result.publicToken).toBeDefined();
       expect(prisma.queueEntry.create.mock.calls[0][0].data.customerId).toBe("cust-1");
+      expect(queueEvents.emitQueueChanged).toHaveBeenCalledWith("queue-1");
     });
   });
 
@@ -193,6 +198,20 @@ describe("QueueEntriesService", () => {
         where: { id: "entry-1" },
         data: expect.objectContaining({ status: "CALLED", assignedStaffId: "staff-1" }),
       });
+      expect(queueEvents.emitQueueChanged).toHaveBeenCalledWith("queue-1");
+    });
+
+    it("does NOT emit a queue-changed event when there was nothing to call (no spurious SSE pushes)", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue(queueRow);
+      prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) => {
+        const tx = { $queryRaw: jest.fn().mockResolvedValue([]) };
+        return cb(tx);
+      });
+
+      await expect(service.callNext(tenantId, "queue-1", "staff-1")).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(queueEvents.emitQueueChanged).not.toHaveBeenCalled();
     });
   });
 
@@ -208,6 +227,7 @@ describe("QueueEntriesService", () => {
         where: { id: "entry-1", tenantId, status: { in: ["CALLED"] } },
         data: expect.objectContaining({ status: "SERVING" }),
       });
+      expect(queueEvents.emitQueueChanged).toHaveBeenCalledWith("queue-1");
     });
 
     it("start: rejects when the entry isn't actually CALLED (already-transitioned race)", async () => {

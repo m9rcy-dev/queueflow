@@ -1,7 +1,7 @@
 # Project Status
 
-Last Updated: 2026-09-27
-Current Phase: Phase 4 — Customer Queue UI (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–3 done)
+Last Updated: 2026-09-28
+Current Phase: Phase 5 — Staff Queue UI (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–4 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -36,27 +36,36 @@ Current Task: See Next Task below
 - Tests: 74 unit + 19 integration total across the project, including a genuine concurrency test (8 simultaneous joins, then 12 simultaneous Call Next requests via `Promise.all`: exactly 8 succeeded, each claiming a distinct entry). Manual end-to-end verification first caught a real bug — `assignedStaffId` was being set to `User.id` instead of the `TenantUser.id` the foreign key actually requires — before any automated test existed.
 - `pnpm quality` passes end to end.
 
+### Phase 4 — Customer Queue UI
+
+- Minimal `Code` model (§4.5/ADR-005), scoped to `QUEUE` context only: `publicCode → {tenant, location, queue, services, capabilities}`. Admin mint endpoint (`POST /tenants/me/queues/:queueId/codes`, `TENANT_OWNER`/`TENANT_ADMIN` only, retries on public-code collision) and public resolver (`GET /public/codes/:code`, 404s uniformly for not-found/inactive so a deactivated code can't be distinguished from a nonexistent one).
+- Realtime: `GET /public/queue-entries/:token/events` (SSE via `@Sse()` + RxJS), backed by an in-process `EventEmitter` (`QueueEventsService`, global module) that `QueueEntriesService` emits on after join/callNext/transition/recall. Single-instance only (D-06) — Redis pub/sub is the documented swap when horizontal scaling is needed (see flash-crowd future workstream, `docs/roadmap.md`). Client always refetches full ticket state on every event rather than trusting it caught all of them (G-27); a heartbeat ping keeps the connection alive through proxies.
+- Rate limiting: `@nestjs/throttler` globally (100/min default) plus 5/min specifically on the public join POST (G-40, partial — see Known Issues). Custom `AppThrottlerGuard` lets integration tests disable enforcement per-file via `DISABLE_RATE_LIMITING=true` while a dedicated `rate-limit.integration-spec.ts` verifies it's genuinely enforced (5 successes then a real 429).
+- `packages/api-client`: `createPublicApiClient(baseUrl)` — anonymous client (no bearer token) for `resolveCode`/`joinQueue`/`getTicket`/`cancelTicket`/`ticketEventsUrl`. `packages/ui`: `Button`/`Card`/`Input`/`Badge`, sharing design tokens with `apps/web/tailwind.config.ts`.
+- `apps/web`: `/q/[code]` (landing — resolves the code, lists joinable services, name+mobile form, idempotency key, submits and redirects) and `/queue/t/[token]` (live ticket page — `EventSource`-driven position/status, Leave Queue with confirm).
+- Tests: 5 new unit (codes service) → 84 total unit; 4 new integration (codes) + 1 new (rate-limit) → 24 total integration. `pnpm quality` green end to end (~24s).
+- Manual verification: full flow driven through a real headless Chromium browser (Playwright, hand-rolled driver script — no `chromium-cli` available in this environment) against the actual booted dev stack — landing renders styled, join submits, redirects to ticket page, a staff-side Call Next fired mid-session updates the already-rendered ticket page live with **no reload** (screenshotted before/after), Leave Queue cancels and persists (cross-checked via `psql`).
+- Environment issue found and fixed (not a code regression): Testcontainers' Ryuk reaper sidecar hangs in this sandboxed Docker environment, making every integration test file take ~932s (timing out at Jest's 120s hook limit) instead of ~5-7s. Fixed by setting `TESTCONTAINERS_RYUK_DISABLED=true` in `test:integration` (documented in `test/jest-integration.config.js`); safe because every spec's `afterAll` already calls `container.stop()` explicitly, so only Ryuk's extra safety net against an unclean process kill is given up, not normal cleanup.
+
 ## Decisions Made
 
 See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
 
 ## Known Issues
 
-- **No code/QR resolver exists yet.** Phase 3's public join API takes a raw `queueId` directly in the URL — it does not go through the unified `code` model (§4.5/ADR-005: `CUSTOMER_IDENTITY`, `GUEST_CARD`, etc.). Phase 4 needs at minimum a small resolver for the `QUEUE` context type (a `code` → `{tenantId, locationId, queueId}` lookup) so a printed/scanned QR doesn't have to embed a raw internal UUID. Do not build the _full_ ADR-005 model now — `CUSTOMER_IDENTITY`/`GUEST_CARD`/`APPOINTMENT_TICKET` are Phases 9/10/C's job; build only what the anonymous walk-in needs.
-- **No realtime (SSE) exists yet.** Phase 4's "live position" requirement needs a `GET /public/queue-entries/:token/events` SSE endpoint — not built in Phase 3, which only proved the engine via plain request/response.
-- `packages/api-client` and `packages/ui` are still empty shells — Phase 4 is genuinely the first phase that needs them filled in.
+- **G-40 partial**: Cloudflare Turnstile (the specific bot-check the plan calls for on the join POST) is not integrated — only IP-based rate limiting (`@nestjs/throttler`, 5/min on join) ships. Adding Turnstile requires an external Cloudflare account/site key.
 - Real SMS/email provider (Pingram) not yet integrated — `MailService` is `ConsoleMailService`. Phase 8's job.
-- Network-level rate limiting (G-38, Redis/Upstash-backed) not yet wired — deferred to Phase 12 as scoped. G-40's Turnstile on the join POST is also not yet added — the public join endpoint has no bot/abuse protection yet.
+- Network-level rate limiting (G-38, Redis/Upstash-backed, for horizontal-scale/multi-instance deployments) not yet wired — deferred to Phase 12 as scoped. Current rate limiting is in-process only, correct for the current single-instance deployment (D-06).
 - No background job/scheduler exists — business-hours-based auto-closing (as a fallback to staff-controlled closing, G-16) and auto-no-show-after-grace-period (G-15) are both designed but not implemented; staff must act manually for now.
+- SSE realtime is in-process (`EventEmitter`) only — correct for single-instance (D-06), but will need a Redis pub/sub swap before horizontal scaling or the future high-volume "flash crowd" workstream (see `docs/roadmap.md`'s future-enhancements section).
+- Testcontainers' Ryuk reaper sidecar hangs in this sandboxed Docker dev environment; `apps/api`'s `test:integration` script sets `TESTCONTAINERS_RYUK_DISABLED=true` to work around it (see `test/jest-integration.config.js` for the full explanation). Not an application bug — purely an environment quirk of this Docker setup.
 
 ## Next Task
 
-**Phase 4 — Customer Queue UI**, per `docs/roadmap.md`:
+**Phase 5 — Staff Queue UI**, per `docs/roadmap.md`:
 
-1. **Minimal code resolver** (see Known Issues above): a `Code` model scoped to the `QUEUE` context type only for now — `publicCode → {tenant, location, queue, capabilities}` — plus an admin endpoint to generate one for a queue. Do not build the other ADR-005 code kinds yet.
-2. **SSE endpoint**: `GET /public/queue-entries/:token/events` streaming position/status changes, with the client refetching current state on reconnect (G-27) rather than trusting it caught every event.
-3. **Rate limiting + bot check on the join POST** (G-40) — this is the first genuinely public-unauthenticated write endpoint in the system; it should not ship without at least a basic protection.
-4. Next.js pages in `apps/web`: QR-landing/context page → service selection → name+mobile form → ticket confirmation page (showing the ticket-as-QR per §4.5, for recovery) → live ticket page (SSE-updated) → leave-queue button.
-5. Fill in `packages/api-client` with a typed fetch client for the public endpoints, and `packages/ui` with the first real shared components (Button, Card, Input, Badge) per the visual doc's design tokens (already in `apps/web/tailwind.config.ts`).
+1. Staff-facing queue view (list of active/waiting entries, live-updating) plus the full lifecycle action set already built in Phase 3's API: Call Next, Start, Complete, Skip/Requeue, No Show, Recall, Cancel, and manually adding a walk-in from the staff side.
+2. **Trusted device + per-staff PIN** (D-03a) — this is the first phase where a real shared counter device exists, so it's the natural point to build shift-change switching (a device stays logged in; individual staff PIN-switch in/out) rather than front-loading it into Phase 1's auth.
+3. Reuse/extend `packages/api-client` with an authenticated staff client (Bearer token attachment, refresh-and-retry-once) and `packages/ui` components as needed for the staff views.
 
-Acceptance: the plan's own first vertical-slice customer half works end to end on a real phone — scan/open a link, join, see live position update without a page refresh, leave the queue.
+Acceptance (per roadmap): staff can operate the complete queue lifecycle from one device; every action attributes to the acting staff member; concurrency tests pass (Phase 3 already proved the underlying concurrency; Phase 5 proves the UI drives it correctly).

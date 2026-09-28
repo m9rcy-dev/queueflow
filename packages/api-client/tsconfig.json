@@ -3,6 +3,9 @@
   "compilerOptions": {
     "module": "commonjs",
     "moduleResolution": "node",
+    // Runs in the browser (apps/web) — needs fetch/RequestInit, which the
+    // base config's plain ES2022 lib doesn't include.
+    "lib": ["ES2022", "DOM"],
     "outDir": "./dist",
     "rootDir": "./src"
   },

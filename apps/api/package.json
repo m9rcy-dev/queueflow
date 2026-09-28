@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "jest",
-    "test:integration": "jest --config test/jest-integration.config.js --passWithNoTests",
+    "test:integration": "TESTCONTAINERS_RYUK_DISABLED=true jest --config test/jest-integration.config.js --passWithNoTests",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy"
