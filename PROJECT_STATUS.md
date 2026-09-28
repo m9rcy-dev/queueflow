@@ -1,7 +1,7 @@
 # Project Status
 
-Last Updated: 2026-09-28
-Current Phase: Phase 7 — Notification Infrastructure (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–6 done)
+Last Updated: 2026-09-29
+Current Phase: Phase 8 — Real Notifications (Pingram) (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–7 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -67,6 +67,16 @@ Current Task: See Next Task below
 - Tests: 6 new unit (`displays.service.spec.ts`) + 4 new codes unit tests (DISPLAY create/deactivate) + 1 new queues unit test (the emit fix) → 113 total unit; 3 new codes integration tests (mint DISPLAY, rotate, cross-tenant-blocked deactivate) → 34 total integration. `pnpm quality` green end to end (~29s).
 - Manual verification: real headless-Chromium run — empty board renders → a customer joins and is called **without reloading the display** (ticket number + service name appear live) → a full-page PII scan of the rendered board found zero matches for the customer's name/phone → pausing the queue via the staff API updates the board live to "Queue temporarily paused" → an invalid/unrecognized code shows a sensible message instead of hanging forever.
 
+### Phase 7 — Notification Infrastructure
+
+- **Outbox pattern (ADR-008/G-31)**: new `NotificationOutbox` model (`tenantId`, `queueEntryId`, `type`, `channel`, `recipient`, finalized `body`, `status: PENDING|SENT`). `NotificationsService.enqueue(tx, ...)` writes a row inside the caller's own transaction; `processPending()` claims each row via a guarded `PENDING→SENT` update _before_ calling the provider (only the caller whose update actually matched proceeds to send — the exactly-once-delivery guarantee), reverting to `PENDING` on a provider failure so a later pass retries. Every mutation triggers processing fire-and-forget (`triggerNotificationProcessing()`, never awaited) — a queue operation's HTTP response never waits on it.
+- **`NotificationProvider`/`MockNotificationProvider`** (`apps/api/src/notifications`): same abstract-class-as-DI-token pattern as `MailService`/`ConsoleMailService`, but a distinct interface/module (SMS-first, queue-event shaped) — logs instead of sending, plus an in-memory `sent[]` log for test introspection.
+- **G-31 threshold engine**: `Queue` gained `approachingThreshold`/`nearlyNextThreshold` (people-ahead, configurable, defaults 5/2); `QueueEntry` gained `approachingNotifiedAt`/`nearlyNextNotifiedAt`/`calledNotifiedAt` (timestamps double as the "already sent" gate and an audit trail). `evaluateWaitingThresholds` re-scans every WAITING entry's position (list order = position) after every mutation that could shift it (join, call-next, any staff transition), enqueuing `APPROACHING`/`NEARLY_NEXT` the first time each is crossed — checked nearest-first, so jumping straight into a nearer tier suppresses the further one (stamped as sent, never actually fired). `CALLED` fires once from `callNext`, suppressing any still-unfired lower tier for that same entry. `RECALLED` fires unconditionally on every staff-triggered recall (never gated — a deliberate resend, not a threshold).
+- **Real concurrency bug found and fixed while building this**: `evaluateWaitingThresholds`'s row updates could deadlock against a _different_ simultaneous Call Next on the same queue — two staff calling next at once could each lock a different WAITING row (ADR-006's own `SKIP LOCKED` design), then each try to update the row the _other_ transaction held, a classic circular wait. Caught by the pre-existing Phase 3 concurrency integration test (8 simultaneous joins + 12 simultaneous Call Next), not a new one. Fixed by claiming only the specific rows about to be written via the same `FOR UPDATE SKIP LOCKED` pattern first — a row locked elsewhere is simply skipped this pass (its notification fires on the queue's next mutation instead); verified deadlock-free across multiple repeated runs of the concurrency test after the fix.
+- Tests: 7 new unit (`notifications.service.spec.ts`, `mock-notification.provider.spec.ts`) + 4 new queue-entries unit tests (threshold firing/suppression/RECALLED) + 1 new queues unit test → 125 total unit; new `notifications.integration-spec.ts` (6 tests: the full vertical slice with exactly one CALLED notification, threshold suppression, cross-entry cascade after a call, unconditional RECALLED, duplicate-processing-never-duplicates, provider-outage-doesn't-block-the-mutation) → 40 total integration. `pnpm quality` green end to end.
+- Manual verification: a real queue driven via curl end to end with tight thresholds — join 3 customers (NEARLY_NEXT/NEARLY_NEXT/APPROACHING fired correctly by position), call-next (CALLED fires, and the newly-promoted 3rd customer correctly gets NEARLY_NEXT in the same pass), recall (RECALLED fires) — cross-checked against both the mock provider's log output and the `notification_outbox`/`queue_entries` tables directly via `psql` (exact 1:1 row-to-log-line match, every row `SENT`, every suppression flag correctly stamped).
+- **This completes the plan's original first vertical slice** (§98/C-03): scan → join → position updates → staff calls → customer notified (mock) → complete — proven end to end by the integration test of the same name.
+
 ## Decisions Made
 
 See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
@@ -82,13 +92,15 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 - The staff dashboard polls every 3s rather than using SSE — deliberate for MVP simplicity (EventSource can't attach an Authorization header, and a query-string token is a security smell not worth taking on this phase); fine at current staff-tablet counts, worth revisiting if multi-tablet live sync becomes a real complaint.
 - No staff-facing UI yet for creating/managing locations, services, queues, or codes (including display codes) — Phase 5/6's work assumes these already exist (created via curl/API in this session's manual testing). A business-admin UI for this is not yet scoped into any phase; flag to the user if it's wanted before Phase 11 (Business Administration).
 - No display-picker UI — a business owner points the TV's browser at the specific `/display/{code}` URL directly (bookmarked once). Fine for one screen per location (D-10); would need a picker if a business ever wants several distinct boards.
+- Notification processing is fire-and-forget in-process, not a real background worker/queue — correct for MVP scale (ADR-008 describes "a background worker sends it," which this satisfies in spirit: never blocks the request), but a genuinely down/slow provider only gets retried on the _next_ queue mutation to the same entry, not on a timer. Revisit once Phase 8's real provider makes actual failures a real possibility, not just a simulated test.
+- No staff-facing UI to configure `approachingThreshold`/`nearlyNextThreshold` per queue — set via `PATCH /tenants/me/queues/:id` today (already wired through), no dashboard control for it yet. Same "no business-admin UI" gap as other queue config (see above).
 
 ## Next Task
 
-**Phase 7 — Notification Infrastructure**, per `docs/roadmap.md`:
+**Phase 8 — Real Notifications (Pingram)**, per `docs/roadmap.md`:
 
-1. Outbox pattern — a notification is written to its own table in the same transaction as the queue mutation that triggers it (G-31's threshold evaluation), then sent asynchronously; a queue operation (join, call-next, etc.) must never block on — or fail because of — the notification provider being slow or down.
-2. `MockNotificationProvider` — same reasoning as `ConsoleMailService`: prove the pattern and the business logic (thresholds, exactly-once delivery) before Phase 8 wires up a real provider (Pingram).
-3. **This completes the plan's original first vertical slice** (§98/C-03): scan → join → position updates → staff calls → customer notified (mock) → complete. Worth an explicit end-to-end check once built, not just unit tests on the outbox mechanics.
+1. Wire a real provider behind the existing `NotificationProvider` interface (ADR-008) — email first (free, the default channel), SMS as a later adapter once real per-tenant cost caps exist (G-29). This is a new class implementing the same interface `MockNotificationProvider` already does; nothing in `NotificationsService` or `QueueEntriesService` should need to change.
+2. **Verify actual NZ-destination SMS pricing on Pingram's pricing page before enabling SMS for real** — ADR-008 flags this as unconfirmed (the advertised free tier is described as "100 SMS to the US").
+3. Consent text + versioning (G-48) — structural requirement, decided in planning; real legal copy needs to exist before any real business's customer data flows through this.
 
-Acceptance (per roadmap): a called customer receives exactly one (mocked) notification; duplicate processing doesn't duplicate it; queue operations don't depend on the provider being up.
+Acceptance (per roadmap): a real email is delivered through the configured provider; provider failure doesn't break queue operations; secrets aren't logged.

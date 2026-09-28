@@ -60,6 +60,7 @@ model Tenant {
   queueEntries  QueueEntry[]
   codes         Code[]
   deviceTrusts  DeviceTrust[]
+  notifications NotificationOutbox[]
 
   @@map("tenants")
 }
@@ -319,6 +320,14 @@ model Queue {
   // Recall/no-show tuning, per-business-configurable (G-15 resolution).
   maxRecallCount              Int         @default(2)
   recallGracePeriodMinutes    Int         @default(5)
+  // Notification thresholds, in people-ahead (G-31/Phase 7) — "you're
+  // approaching" and "you're nearly next" fire once a WAITING entry's
+  // position crosses these, each only once per entry (QueueEntry's own
+  // *NotifiedAt columns). nearlyNext must stay <= approaching; not
+  // enforced at the DB level (no cross-column CHECK in this schema style)
+  // but validated wherever queue config is updated.
+  approachingThreshold        Int         @default(5)
+  nearlyNextThreshold         Int         @default(2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -416,6 +425,15 @@ model QueueEntry {
   cancelledAt        DateTime?
   cancellationReason String?
 
+  // Notification thresholds fired at most once per entry (G-31, Phase 7) —
+  // a timestamp doubles as an audit trail, not just a boolean gate.
+  // RECALLED has no equivalent column: staff can explicitly resend as many
+  // times as maxRecallCount allows (recallCount above already tracks
+  // that), so it's never "already sent, skip."
+  approachingNotifiedAt DateTime?
+  nearlyNextNotifiedAt  DateTime?
+  calledNotifiedAt      DateTime?
+
   // Optimistic-locking guard on top of Call Next's FOR UPDATE SKIP LOCKED
   // (ADR-006) — belt and suspenders for the single-entry transitions
   // (start/complete/skip/etc.) which don't go through the row-lock query.
@@ -429,12 +447,66 @@ model QueueEntry {
   service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   customer      Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   assignedStaff TenantUser? @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  notifications NotificationOutbox[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([queueId, serviceDate, ticketNumber])
   @@index([queueId, status])
   @@index([customerId])
   @@map("queue_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 (Notification Infrastructure, docs/roadmap.md) — the outbox
+// pattern (ADR-008/G-31): a queue mutation's own transaction writes a
+// PENDING row here (never sends synchronously — a queue operation must
+// never block on, or fail because of, the notification provider), and a
+// fire-and-forget pass afterward claims + sends each row exactly once.
+// MockNotificationProvider is Phase 7's only provider — Pingram is Phase 8.
+// ---------------------------------------------------------------------------
+
+enum NotificationType {
+  APPROACHING
+  NEARLY_NEXT
+  CALLED
+  RECALLED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+enum NotificationOutboxStatus {
+  PENDING
+  SENT
+}
+
+model NotificationOutbox {
+  id           String                   @id @default(uuid())
+  tenantId     String
+  queueEntryId String
+  type         NotificationType
+  channel      NotificationChannel
+  // Phone (E.164) or email — resolved and fixed at enqueue time, not
+  // re-derived from the customer at send time (the customer's own contact
+  // details could change in between; the outbox row is what was promised).
+  recipient String
+  // Finalized message text at enqueue time — an outbox row is a concrete
+  // thing to send, not a template reference that copy changes could alter
+  // after the fact.
+  body   String
+  status NotificationOutboxStatus @default(PENDING)
+
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queueEntry QueueEntry @relation(fields: [queueEntryId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([queueEntryId])
+  @@map("notification_outbox")
 }
 
 // ---------------------------------------------------------------------------

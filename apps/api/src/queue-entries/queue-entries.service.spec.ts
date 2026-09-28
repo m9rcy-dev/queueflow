@@ -4,6 +4,7 @@ import { QueueEntriesService } from "./queue-entries.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { QueueEventsService } from "../queue-events/queue-events.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 describe("QueueEntriesService", () => {
   let service: QueueEntriesService;
@@ -14,20 +15,26 @@ describe("QueueEntriesService", () => {
     customer: Record<string, jest.Mock>;
     queueTicketCounter: Record<string, jest.Mock>;
     $transaction: jest.Mock;
+    $queryRaw: jest.Mock;
   };
   let queuesService: { findOwnedQueue: jest.Mock };
   let queueEvents: { emitQueueChanged: jest.Mock };
+  let notifications: { enqueue: jest.Mock; processPending: jest.Mock };
 
   const tenantId = "tenant-1";
   const queueRow = {
     id: "queue-1",
     tenantId,
     locationId: "loc-1",
+    name: "Main Queue",
     status: "ACTIVE",
     servingCapacity: 1,
     maxActiveTicketsPerCustomer: 1,
     maxRecallCount: 2,
+    approachingThreshold: 5,
+    nearlyNextThreshold: 2,
     location: { id: "loc-1", timezone: "Pacific/Auckland", maxActiveTicketsPerCustomer: 2 },
+    tenant: { name: "Test Biz" },
   };
   const entry = {
     id: "entry-1",
@@ -44,14 +51,21 @@ describe("QueueEntriesService", () => {
     completedAt: null,
     cancelledAt: null,
     publicToken: "tok_abc123",
+    approachingNotifiedAt: null,
+    nearlyNextNotifiedAt: null,
   };
+  const customerContact = { phoneE164: "+64211234567", email: null };
 
   beforeEach(async () => {
     prisma = {
-      queue: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn() },
+      queue: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn().mockResolvedValue(queueRow) },
       queueEntry: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
+        findFirstOrThrow: jest.fn().mockResolvedValue(entry),
+        findUniqueOrThrow: jest
+          .fn()
+          .mockResolvedValue({ ...entry, customer: customerContact, queue: queueRow }),
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
@@ -61,10 +75,20 @@ describe("QueueEntriesService", () => {
       queueService: { findUnique: jest.fn() },
       customer: { upsert: jest.fn() },
       queueTicketCounter: { upsert: jest.fn() },
-      $transaction: jest.fn(),
+      // Defaults to forwarding straight to `prisma` itself — every test
+      // that doesn't care about transactional mechanics just sees its
+      // usual mocked methods. callNext's own tests override this with a
+      // dedicated tx object for the row-lock query (ADR-006).
+      $transaction: jest.fn().mockImplementation((cb: (tx: unknown) => unknown) => cb(prisma)),
+      // evaluateWaitingThresholds' own FOR UPDATE SKIP LOCKED claim query
+      // (see its own describe block below for what "lockable" needs to
+      // resolve to per test — only reached when there's at least one
+      // notification candidate).
+      $queryRaw: jest.fn(),
     };
     queuesService = { findOwnedQueue: jest.fn() };
     queueEvents = { emitQueueChanged: jest.fn() };
+    notifications = { enqueue: jest.fn(), processPending: jest.fn().mockResolvedValue(undefined) };
 
     const module = await Test.createTestingModule({
       providers: [
@@ -72,6 +96,7 @@ describe("QueueEntriesService", () => {
         { provide: PrismaService, useValue: prisma },
         { provide: QueuesService, useValue: queuesService },
         { provide: QueueEventsService, useValue: queueEvents },
+        { provide: NotificationsService, useValue: notifications },
       ],
     }).compile();
 
@@ -157,6 +182,127 @@ describe("QueueEntriesService", () => {
       expect(result.publicToken).toBeDefined();
       expect(prisma.queueEntry.create.mock.calls[0][0].data.customerId).toBe("cust-1");
       expect(queueEvents.emitQueueChanged).toHaveBeenCalledWith("queue-1");
+    });
+  });
+
+  describe("notification thresholds (G-31)", () => {
+    function mockSuccessfulJoin(createdEntry: { id: string; ticketNumber: number }): void {
+      prisma.queue.findUnique.mockResolvedValue(queueRow);
+      prisma.queueEntry.findUnique.mockResolvedValue(null);
+      prisma.queueService.findUnique.mockResolvedValue({
+        service: { active: true, queueEnabled: true, durationMinutes: 20 },
+      });
+      prisma.customer.upsert.mockResolvedValue({ id: "cust-1" });
+      prisma.queueEntry.count.mockResolvedValue(0);
+      prisma.queueTicketCounter.upsert.mockResolvedValue({ lastNumber: createdEntry.ticketNumber });
+      prisma.queueEntry.create.mockResolvedValue(createdEntry);
+    }
+    const joinInput = {
+      serviceId: "svc-1",
+      customerName: "Alice",
+      customerPhone: "0211234567",
+    };
+
+    it("fires NEARLY_NEXT (not APPROACHING) when the new entrant lands within the nearly-next threshold", async () => {
+      const created = { ...entry, id: "entry-2", ticketNumber: 2 };
+      mockSuccessfulJoin(created);
+      // nearlyNextThreshold is 2 — this entry is 2nd in line (index 1 = 1 person ahead).
+      prisma.queueEntry.findMany.mockResolvedValue([
+        { ...entry, id: "entry-1", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...created, customer: customerContact, service: { durationMinutes: 20 } },
+      ]);
+      // Nothing else concurrently holds either row locked (ADR-006's SKIP LOCKED claim).
+      prisma.$queryRaw.mockResolvedValue([{ id: "entry-1" }, { id: "entry-2" }]);
+
+      await service.join("queue-1", joinInput);
+
+      expect(notifications.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: "NEARLY_NEXT", queueEntryId: "entry-2" }),
+      );
+      expect(notifications.enqueue).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: "APPROACHING", queueEntryId: "entry-2" }),
+      );
+      // Suppression (G-31): jumping straight to nearly-next also stamps
+      // approaching as sent, without a separate APPROACHING enqueue.
+      expect(prisma.queueEntry.update).toHaveBeenCalledWith({
+        where: { id: "entry-2" },
+        data: expect.objectContaining({
+          nearlyNextNotifiedAt: expect.any(Date),
+          approachingNotifiedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it("fires APPROACHING for an entry within that threshold but not the nearer nearly-next one", async () => {
+      const created = { ...entry, id: "entry-2", ticketNumber: 2 };
+      mockSuccessfulJoin(created);
+      // approachingThreshold is 5, nearlyNextThreshold is 2 — 4 people ahead lands in the approaching band only.
+      prisma.queueEntry.findMany.mockResolvedValue([
+        { ...entry, id: "e1", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...entry, id: "e2", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...entry, id: "e3", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...entry, id: "e4", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...created, customer: customerContact, service: { durationMinutes: 20 } },
+      ]);
+      prisma.$queryRaw.mockResolvedValue(["e1", "e2", "e3", "e4", "entry-2"].map((id) => ({ id })));
+
+      await service.join("queue-1", joinInput);
+
+      expect(notifications.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: "APPROACHING", queueEntryId: "entry-2" }),
+      );
+    });
+
+    it("does not notify an entry still beyond both thresholds", async () => {
+      const created = { ...entry, id: "entry-2", ticketNumber: 2 };
+      mockSuccessfulJoin(created);
+      // The 6 entries ahead already had their own notifications fire earlier
+      // (already-notified, so this pass doesn't re-fire for them either) —
+      // isolates the assertion to entry-2, which sits at 6 people ahead,
+      // beyond both approachingThreshold(5) and nearlyNextThreshold(2).
+      const farEntries = Array.from({ length: 6 }, (_, i) => ({
+        ...entry,
+        id: `far-${i}`,
+        customer: customerContact,
+        service: { durationMinutes: 20 },
+        approachingNotifiedAt: new Date(),
+        nearlyNextNotifiedAt: new Date(),
+      }));
+      prisma.queueEntry.findMany.mockResolvedValue([
+        ...farEntries,
+        { ...created, customer: customerContact, service: { durationMinutes: 20 } },
+      ]);
+
+      await service.join("queue-1", joinInput);
+
+      expect(notifications.enqueue).not.toHaveBeenCalled();
+    });
+
+    it("never re-fires a threshold that's already been notified", async () => {
+      const created = {
+        ...entry,
+        id: "entry-2",
+        ticketNumber: 2,
+        approachingNotifiedAt: new Date(),
+      };
+      mockSuccessfulJoin(created);
+      prisma.queueEntry.findMany.mockResolvedValue([
+        { ...entry, id: "e1", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...entry, id: "e2", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...entry, id: "e3", customer: customerContact, service: { durationMinutes: 20 } },
+        { ...created, customer: customerContact, service: { durationMinutes: 20 } },
+      ]);
+      prisma.$queryRaw.mockResolvedValue(["e1", "e2", "e3"].map((id) => ({ id })));
+
+      await service.join("queue-1", joinInput);
+
+      expect(notifications.enqueue).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ queueEntryId: "entry-2" }),
+      );
     });
   });
 
@@ -253,9 +399,14 @@ describe("QueueEntriesService", () => {
       queuesService.findOwnedQueue.mockResolvedValue(queueRow);
       const updateMock = jest.fn().mockResolvedValue({ ...entry, status: "CALLED" });
       prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) => {
+        // Spreads prisma's own mocks (so enqueueCalledNotification's and
+        // evaluateWaitingThresholds' lookups still resolve) but overrides
+        // $queryRaw (the row-lock select) and queueEntry.update (the
+        // status transition itself) for this specific scenario.
         const tx = {
+          ...prisma,
           $queryRaw: jest.fn().mockResolvedValue([{ id: "entry-1" }]),
-          queueEntry: { update: updateMock },
+          queueEntry: { ...prisma.queueEntry, update: updateMock },
         };
         return cb(tx);
       });
@@ -271,6 +422,10 @@ describe("QueueEntriesService", () => {
         data: expect.objectContaining({ status: "CALLED", assignedStaffId: "staff-1" }),
       });
       expect(queueEvents.emitQueueChanged).toHaveBeenCalledWith("queue-1");
+      expect(notifications.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: "CALLED", queueEntryId: "entry-1" }),
+      );
     });
 
     it("does NOT emit a queue-changed event when there was nothing to call (no spurious SSE pushes)", async () => {
@@ -367,6 +522,24 @@ describe("QueueEntriesService", () => {
         where: { id: "entry-1" },
         data: { recallCount: { increment: 1 } },
       });
+    });
+
+    it("always enqueues a RECALLED notification — an explicit resend, never gated by calledNotifiedAt", async () => {
+      prisma.queueEntry.findFirst.mockResolvedValue({
+        ...entry,
+        status: "CALLED",
+        recallCount: 0,
+        calledNotifiedAt: new Date(), // CALLED was already sent — recall must still fire
+      });
+      prisma.queue.findUniqueOrThrow.mockResolvedValue({ ...queueRow, maxRecallCount: 2 });
+      prisma.queueEntry.update.mockResolvedValue({ ...entry, status: "CALLED", recallCount: 1 });
+
+      await service.recall(tenantId, "entry-1");
+
+      expect(notifications.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: "RECALLED", queueEntryId: "entry-1" }),
+      );
     });
   });
 });

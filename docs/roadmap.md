@@ -164,13 +164,32 @@ green.
 
 ### Phase 7 — Notification Infrastructure
 
-Outbox pattern (notification never blocks a queue operation), threshold evaluation in the same
-transaction as the mutation (G-31), `MockNotificationProvider`. **This completes the plan's original
+**Status: ✅ Done** (2026-09-29)
+
+Outbox pattern (`NotificationOutbox`: PENDING→SENT, claimed atomically before sending — the
+exactly-once guarantee), threshold evaluation in the same transaction as the mutation (G-31 — new
+`Queue.approachingThreshold`/`nearlyNextThreshold` and `QueueEntry.*NotifiedAt` gates), and
+`MockNotificationProvider` behind the same abstract-class DI pattern as `ConsoleMailService`.
+APPROACHING/NEARLY_NEXT re-evaluated across every WAITING entry after any mutation that could shift
+positions; nearest-tier-wins suppression (jumping straight to a nearer tier silently marks the
+further one sent, never fires it); CALLED fires once from Call Next and suppresses any still-pending
+lower tier; RECALLED fires unconditionally on every staff resend. **This completes the plan's original
 first vertical slice (§98/C-03)** — scan → join → position updates → staff calls → customer notified
 (mock) → complete.
 
+A genuine concurrency bug surfaced and was fixed along the way: two simultaneous Call Next requests on
+the same queue could deadlock against each other once threshold re-evaluation started writing to
+WAITING rows a sibling transaction had locked via its own `FOR UPDATE SKIP LOCKED` select — fixed by
+having the threshold pass claim only the specific rows it's about to write, via the same
+skip-if-locked pattern, deferring a locked entry's notification to the queue's next mutation rather
+than blocking.
+
 **Acceptance:** called customer receives exactly one (mocked) notification; duplicate processing
-doesn't duplicate it; queue operations don't depend on the provider being up.
+doesn't duplicate it; queue operations don't depend on the provider being up. Verified via a dedicated
+integration suite (the vertical slice, threshold suppression, cross-entry cascade after a call,
+unconditional recall, duplicate-processing-safety, and provider-outage-doesn't-block-the-mutation) plus
+a manual curl-driven run cross-checked against the database directly. 125 unit + 40 integration tests,
+`pnpm quality` green.
 
 ### Phase 8 — Real Notifications (Pingram)
 

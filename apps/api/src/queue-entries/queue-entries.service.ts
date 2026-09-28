@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Prisma, type NotificationChannel, type NotificationType } from "@prisma/client";
 import type {
   JoinQueueResponse,
   QueueEntryStatus,
@@ -9,9 +10,26 @@ import type { JoinQueueInput } from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { QueueEventsService } from "../queue-events/queue-events.service";
+import { NotificationsService } from "../notifications/notifications.service";
+import {
+  buildApproachingMessage,
+  buildCalledMessage,
+  buildNearlyNextMessage,
+  buildRecalledMessage,
+} from "../notifications/notification-copy";
 import { normalizePhoneToE164 } from "../common/phone.util";
 import { getLocationServiceDate } from "../common/timezone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
+
+/** Email if the customer has one on file (not true for any join-flow customer today), SMS otherwise (G-32/ADR-008) — every anonymous walk-in resolves to SMS by construction. */
+function resolveChannel(customer: { phoneE164: string; email: string | null }): {
+  channel: NotificationChannel;
+  recipient: string;
+} {
+  return customer.email
+    ? { channel: "EMAIL", recipient: customer.email }
+    : { channel: "SMS", recipient: customer.phoneE164 };
+}
 
 const ACTIVE_STATUSES: QueueEntryStatus[] = ["WAITING", "CALLED", "SERVING"];
 
@@ -45,10 +63,13 @@ type StaffEntryRow = EntryRow & {
  */
 @Injectable()
 export class QueueEntriesService {
+  private readonly logger = new Logger(QueueEntriesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly queuesService: QueuesService,
     private readonly queueEvents: QueueEventsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -146,17 +167,25 @@ export class QueueEntriesService {
       update: { lastNumber: { increment: 1 } },
     });
 
-    const entry = await this.prisma.queueEntry.create({
-      data: {
-        tenantId: queue.tenantId,
-        queueId,
-        serviceId: input.serviceId,
-        customerId: customer.id,
-        publicToken: generateSecurePublicToken(),
-        ticketNumber: counter.lastNumber,
-        serviceDate,
-        idempotencyKey: input.idempotencyKey ?? null,
-      },
+    // The create and the notification-threshold re-evaluation are one
+    // atomic unit (G-31) — a join that lands the new customer straight
+    // into "nearly next" territory (a short queue) must enqueue that
+    // notification in the same transaction as the entry itself existing.
+    const entry = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.queueEntry.create({
+        data: {
+          tenantId: queue.tenantId,
+          queueId,
+          serviceId: input.serviceId,
+          customerId: customer.id,
+          publicToken: generateSecurePublicToken(),
+          ticketNumber: counter.lastNumber,
+          serviceDate,
+          idempotencyKey: input.idempotencyKey ?? null,
+        },
+      });
+      await this.evaluateWaitingThresholds(tx, queueId);
+      return created;
     });
 
     // A new WAITING entry doesn't shift anyone else's position, but every
@@ -164,6 +193,7 @@ export class QueueEntriesService {
     // which ones could matter to existing watchers — simplicity over a
     // micro-optimization.
     this.queueEvents.emitQueueChanged(queueId);
+    this.triggerNotificationProcessing();
 
     return this.toJoinResponse(entry, await this.computePosition(entry, queue.servingCapacity));
   }
@@ -259,7 +289,7 @@ export class QueueEntriesService {
       if (rows.length === 0) {
         return null;
       }
-      return tx.queueEntry.update({
+      const called = await tx.queueEntry.update({
         where: { id: rows[0].id },
         data: {
           status: "CALLED",
@@ -268,12 +298,19 @@ export class QueueEntriesService {
           version: { increment: 1 },
         },
       });
+      await this.enqueueCalledNotification(tx, called.id);
+      // Removing this entry from WAITING shifts everyone behind it up one
+      // position — same transaction, so their threshold state is
+      // consistent with the position they actually ended up at (G-31).
+      await this.evaluateWaitingThresholds(tx, queueId);
+      return called;
     });
 
     if (!updated) {
       throw new NotFoundException({ code: "QUEUE_EMPTY", message: "No one is waiting." });
     }
     this.queueEvents.emitQueueChanged(queueId);
+    this.triggerNotificationProcessing();
     return this.getByIdForTenant(tenantId, updated.id);
   }
 
@@ -362,13 +399,21 @@ export class QueueEntriesService {
         message: "Maximum recall attempts reached for this ticket.",
       });
     }
-    await this.prisma.queueEntry.update({
-      where: { id: entryId },
-      data: { recallCount: { increment: 1 } },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.queueEntry.update({
+        where: { id: entryId },
+        data: { recallCount: { increment: 1 } },
+      });
+      // Recall is an explicit staff-triggered resend, not a one-time
+      // threshold — always enqueues, never gated by calledNotifiedAt
+      // (that flag only prevents the automatic CALLED notification from
+      // re-firing on unrelated recomputation).
+      await this.enqueueRecalledNotification(tx, entryId);
     });
     // Doesn't change status or anyone else's position, but the entry's own
     // watcher (if any) should still see the updated recallCount live.
     this.queueEvents.emitQueueChanged(entry.queueId);
+    this.triggerNotificationProcessing();
     return this.getByIdForTenant(tenantId, entryId);
   }
 
@@ -378,9 +423,21 @@ export class QueueEntriesService {
     fromStatuses: QueueEntryStatus[],
     data: Record<string, unknown>,
   ): Promise<QueueEntrySummary> {
-    const result = await this.prisma.queueEntry.updateMany({
-      where: { id: entryId, tenantId, status: { in: fromStatuses } },
-      data: { ...data, version: { increment: 1 } },
+    // The transition and the notification-threshold re-evaluation are one
+    // atomic unit (G-31) — completing/skipping/cancelling a WAITING or
+    // CALLED entry (or requeuing one back into WAITING) can shift every
+    // remaining WAITING entry's position, so their threshold state must be
+    // updated in the same transaction as whatever caused the shift.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updateResult = await tx.queueEntry.updateMany({
+        where: { id: entryId, tenantId, status: { in: fromStatuses } },
+        data: { ...data, version: { increment: 1 } },
+      });
+      if (updateResult.count > 0) {
+        const updated = await tx.queueEntry.findFirstOrThrow({ where: { id: entryId, tenantId } });
+        await this.evaluateWaitingThresholds(tx, updated.queueId);
+      }
+      return updateResult;
     });
     if (result.count === 0) {
       const existing = await this.prisma.queueEntry.findFirst({ where: { id: entryId, tenantId } });
@@ -406,7 +463,188 @@ export class QueueEntriesService {
       await this.computePosition(entry, await this.servingCapacityFor(entry.queueId)),
     );
     this.queueEvents.emitQueueChanged(summary.queueId);
+    this.triggerNotificationProcessing();
     return summary;
+  }
+
+  /**
+   * G-31's threshold re-evaluation — recomputes every currently-WAITING
+   * entry's position (list order = position, cheap at realistic queue
+   * sizes, no separate count-ahead query needed) and enqueues
+   * APPROACHING/NEARLY_NEXT the first time each is crossed. Checked
+   * nearest-first: an entry that jumps straight into "nearly next"
+   * territory (several people ahead left at once) gets that one
+   * notification, with "approaching" silently marked as sent rather than
+   * fired late and redundant (G-31's suppression rule).
+   */
+  private async evaluateWaitingThresholds(
+    tx: Prisma.TransactionClient,
+    queueId: string,
+  ): Promise<void> {
+    const queue = await tx.queue.findUniqueOrThrow({
+      where: { id: queueId },
+      include: { tenant: { select: { name: true } } },
+    });
+    const waiting = await tx.queueEntry.findMany({
+      where: { queueId, status: "WAITING" },
+      orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
+      include: { customer: { select: { phoneE164: true, email: true } } },
+    });
+
+    interface Candidate {
+      id: string;
+      type: NotificationType;
+      channel: NotificationChannel;
+      recipient: string;
+      body: string;
+      updateData: Prisma.QueueEntryUpdateInput;
+    }
+    const candidates: Candidate[] = [];
+
+    for (let peopleAhead = 0; peopleAhead < waiting.length; peopleAhead += 1) {
+      const entry = waiting[peopleAhead];
+      if (!entry.customer) continue; // no contact details to notify — shouldn't happen via the join flow, but never crash on it
+
+      const { channel, recipient } = resolveChannel(entry.customer);
+
+      if (peopleAhead <= queue.nearlyNextThreshold && !entry.nearlyNextNotifiedAt) {
+        candidates.push({
+          id: entry.id,
+          type: "NEARLY_NEXT",
+          channel,
+          recipient,
+          body: buildNearlyNextMessage({
+            businessName: queue.tenant.name,
+            queueName: queue.name,
+            peopleAhead,
+          }),
+          updateData: {
+            nearlyNextNotifiedAt: new Date(),
+            approachingNotifiedAt: entry.approachingNotifiedAt ?? new Date(),
+          },
+        });
+      } else if (peopleAhead <= queue.approachingThreshold && !entry.approachingNotifiedAt) {
+        candidates.push({
+          id: entry.id,
+          type: "APPROACHING",
+          channel,
+          recipient,
+          body: buildApproachingMessage({
+            businessName: queue.tenant.name,
+            queueName: queue.name,
+            peopleAhead,
+          }),
+          updateData: { approachingNotifiedAt: new Date() },
+        });
+      }
+    }
+    if (candidates.length === 0) return;
+
+    // Only touch entries we can actually lock right now (ADR-006's own
+    // pattern, reused) — a concurrent Call Next against this same queue
+    // may already hold one of these rows locked via its own row-lock
+    // select. Blocking here to wait for it would deadlock against that
+    // other transaction symmetrically waiting on ours (proven by a real
+    // concurrent-Call-Next integration test). Skipping a locked row is
+    // safe: this same check runs again on the very next mutation.
+    const lockable = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM queue_entries
+      WHERE id IN (${Prisma.join(candidates.map((c) => c.id))})
+      FOR UPDATE SKIP LOCKED
+    `;
+    const lockableIds = new Set(lockable.map((row) => row.id));
+
+    for (const candidate of candidates) {
+      if (!lockableIds.has(candidate.id)) continue;
+      await tx.queueEntry.update({ where: { id: candidate.id }, data: candidate.updateData });
+      await this.notifications.enqueue(tx, {
+        tenantId: queue.tenantId,
+        queueEntryId: candidate.id,
+        type: candidate.type,
+        channel: candidate.channel,
+        recipient: candidate.recipient,
+        body: candidate.body,
+      });
+    }
+  }
+
+  /** Called once, from callNext, for the specific entry that just got called. */
+  private async enqueueCalledNotification(
+    tx: Prisma.TransactionClient,
+    entryId: string,
+  ): Promise<void> {
+    const entry = await tx.queueEntry.findUniqueOrThrow({
+      where: { id: entryId },
+      include: {
+        customer: { select: { phoneE164: true, email: true } },
+        queue: { include: { tenant: { select: { name: true } } } },
+      },
+    });
+    if (!entry.customer) return;
+    const { channel, recipient } = resolveChannel(entry.customer);
+
+    await tx.queueEntry.update({
+      where: { id: entryId },
+      data: {
+        calledNotifiedAt: new Date(),
+        // Suppress any still-pending lower-tier notification (G-31) — once
+        // called, a stale "approaching"/"nearly next" text would only confuse.
+        approachingNotifiedAt: entry.approachingNotifiedAt ?? new Date(),
+        nearlyNextNotifiedAt: entry.nearlyNextNotifiedAt ?? new Date(),
+      },
+    });
+    await this.notifications.enqueue(tx, {
+      tenantId: entry.tenantId,
+      queueEntryId: entry.id,
+      type: "CALLED",
+      channel,
+      recipient,
+      body: buildCalledMessage({
+        businessName: entry.queue.tenant.name,
+        ticketNumber: entry.ticketNumber,
+      }),
+    });
+  }
+
+  /** Called from recall — an explicit staff-triggered resend, never gated by calledNotifiedAt (see recall()'s own comment). */
+  private async enqueueRecalledNotification(
+    tx: Prisma.TransactionClient,
+    entryId: string,
+  ): Promise<void> {
+    const entry = await tx.queueEntry.findUniqueOrThrow({
+      where: { id: entryId },
+      include: {
+        customer: { select: { phoneE164: true, email: true } },
+        queue: { include: { tenant: { select: { name: true } } } },
+      },
+    });
+    if (!entry.customer) return;
+    const { channel, recipient } = resolveChannel(entry.customer);
+
+    await this.notifications.enqueue(tx, {
+      tenantId: entry.tenantId,
+      queueEntryId: entry.id,
+      type: "RECALLED",
+      channel,
+      recipient,
+      body: buildRecalledMessage({
+        businessName: entry.queue.tenant.name,
+        ticketNumber: entry.ticketNumber,
+      }),
+    });
+  }
+
+  /**
+   * Fire-and-forget (ADR-008/G-31) — never awaited by the mutation that
+   * triggered it, so a slow or down notification provider can never block
+   * or fail a queue operation. Re-drains the whole PENDING backlog rather
+   * than just this mutation's own new rows; harmless (each row is claimed
+   * atomically) and simpler than tracking which rows are "new."
+   */
+  private triggerNotificationProcessing(): void {
+    void this.notifications
+      .processPending()
+      .catch((err) => this.logger.error("Failed to process notification outbox", err));
   }
 
   private async findOwnedEntry(tenantId: string, entryId: string): Promise<EntryRow> {

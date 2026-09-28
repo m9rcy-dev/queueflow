@@ -12,6 +12,9 @@ export interface QueueSummary {
   maxActiveTicketsPerCustomer: number;
   maxRecallCount: number;
   recallGracePeriodMinutes: number;
+  /** People-ahead thresholds for the APPROACHING/NEARLY_NEXT notifications (G-31, Phase 7). */
+  approachingThreshold: number;
+  nearlyNextThreshold: number;
 }
 
 /** Staff-facing view — never carries the customer's public ticket token. */

@@ -77,6 +77,8 @@ describe("QueuesService", () => {
           maxActiveTicketsPerCustomer: 1,
           maxRecallCount: 2,
           recallGracePeriodMinutes: 5,
+          approachingThreshold: 5,
+          nearlyNextThreshold: 2,
         },
       });
     });

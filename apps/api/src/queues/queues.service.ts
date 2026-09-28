@@ -30,6 +30,8 @@ export class QueuesService {
         maxActiveTicketsPerCustomer: input.maxActiveTicketsPerCustomer ?? 1,
         maxRecallCount: input.maxRecallCount ?? 2,
         recallGracePeriodMinutes: input.recallGracePeriodMinutes ?? 5,
+        approachingThreshold: input.approachingThreshold ?? 5,
+        nearlyNextThreshold: input.nearlyNextThreshold ?? 2,
       },
     });
     return toQueueSummary(queue);
@@ -65,6 +67,12 @@ export class QueuesService {
         ...(input.maxRecallCount !== undefined && { maxRecallCount: input.maxRecallCount }),
         ...(input.recallGracePeriodMinutes !== undefined && {
           recallGracePeriodMinutes: input.recallGracePeriodMinutes,
+        }),
+        ...(input.approachingThreshold !== undefined && {
+          approachingThreshold: input.approachingThreshold,
+        }),
+        ...(input.nearlyNextThreshold !== undefined && {
+          nearlyNextThreshold: input.nearlyNextThreshold,
         }),
       },
     });
@@ -181,6 +189,8 @@ function toQueueSummary(queue: {
   maxActiveTicketsPerCustomer: number;
   maxRecallCount: number;
   recallGracePeriodMinutes: number;
+  approachingThreshold: number;
+  nearlyNextThreshold: number;
 }): QueueSummary {
   return {
     id: queue.id,
@@ -191,5 +201,7 @@ function toQueueSummary(queue: {
     maxActiveTicketsPerCustomer: queue.maxActiveTicketsPerCustomer,
     maxRecallCount: queue.maxRecallCount,
     recallGracePeriodMinutes: queue.recallGracePeriodMinutes,
+    approachingThreshold: queue.approachingThreshold,
+    nearlyNextThreshold: queue.nearlyNextThreshold,
   };
 }

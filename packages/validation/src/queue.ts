@@ -1,19 +1,44 @@
 import { z } from "zod";
 
-export const createQueueSchema = z.object({
-  locationId: z.string().uuid(),
-  name: z.string().trim().min(1).max(200),
+/** Same "nearlyNext must not be looser than approaching" check on both create and update — a same-request misconfiguration, not a DB constraint (see schema comment on Queue). */
+function refineThresholdOrdering<T extends z.ZodTypeAny>(schema: T) {
+  return schema.refine(
+    (data: { approachingThreshold?: number; nearlyNextThreshold?: number }) =>
+      data.approachingThreshold === undefined ||
+      data.nearlyNextThreshold === undefined ||
+      data.nearlyNextThreshold <= data.approachingThreshold,
+    {
+      message: "nearlyNextThreshold must be <= approachingThreshold",
+      path: ["nearlyNextThreshold"],
+    },
+  );
+}
+
+const queueConfigFields = {
   servingCapacity: z.number().int().min(1).max(50).optional(),
   maxActiveTicketsPerCustomer: z.number().int().min(1).max(10).optional(),
   maxRecallCount: z.number().int().min(0).max(10).optional(),
   recallGracePeriodMinutes: z.number().int().min(1).max(60).optional(),
-});
+  // Notification thresholds (G-31/Phase 7), in people-ahead.
+  approachingThreshold: z.number().int().min(0).max(100).optional(),
+  nearlyNextThreshold: z.number().int().min(0).max(100).optional(),
+};
+
+export const createQueueSchema = refineThresholdOrdering(
+  z.object({
+    locationId: z.string().uuid(),
+    name: z.string().trim().min(1).max(200),
+    ...queueConfigFields,
+  }),
+);
 export type CreateQueueInput = z.infer<typeof createQueueSchema>;
 
-export const updateQueueConfigSchema = createQueueSchema
-  .omit({ locationId: true, name: true })
-  .partial()
-  .extend({ name: z.string().trim().min(1).max(200).optional() });
+export const updateQueueConfigSchema = refineThresholdOrdering(
+  z.object({
+    name: z.string().trim().min(1).max(200).optional(),
+    ...queueConfigFields,
+  }),
+);
 export type UpdateQueueConfigInput = z.infer<typeof updateQueueConfigSchema>;
 
 export const updateQueueStatusSchema = z.object({
