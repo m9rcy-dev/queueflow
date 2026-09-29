@@ -39,6 +39,10 @@ describe("Notification infrastructure (integration)", () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     process.env.DATABASE_URL = container.getConnectionUri();
     process.env.JWT_ACCESS_SECRET = "integration-test-secret";
+    // Tests must never depend on a real external provider being configured
+    // (or paid/rate-limited) in the developer's local .env — always mock.
+    process.env.EMAIL_PROVIDER = "mock";
+    process.env.SMS_PROVIDER = "mock";
     process.env.DISABLE_RATE_LIMITING = "true";
 
     execSync("npx prisma migrate deploy", {
@@ -319,6 +323,10 @@ describe("Notification infrastructure (integration)", () => {
     // NEARLY_NEXT (lone joiner, 0 ahead, default thresholds) correctly
     // goes via SMS — irrelevant to this test, cleared below.
     const entry = await join(queueId, serviceId, "Alice", "0211119999").expect(201);
+    // The join's own fire-and-forget send is never awaited by the HTTP
+    // response — let it settle before resetting, or its SMS can land in
+    // smsProvider.sent *after* the reset below and pollute this test.
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Not yet possible via the join flow itself (Phase 9's job) — set
     // directly, the same way a real signed-up customer record eventually

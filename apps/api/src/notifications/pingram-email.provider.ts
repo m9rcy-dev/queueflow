@@ -2,7 +2,18 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { EmailProvider, type EmailSendRequest } from "./email-provider";
 
-const PINGRAM_EMAIL_ENDPOINT = "https://api.pingram.io/email";
+/**
+ * Pingram's account data is regional (per their own Node SDK source) — a
+ * key created under one region is genuinely not found against another
+ * region's host, not an auth error. Confirmed the hard way: the same key
+ * that 404'd against the US host succeeded against the EU one. Defaults
+ * to "us" to match Pingram's own SDK default.
+ */
+const REGION_HOSTS: Record<string, string> = {
+  us: "https://api.pingram.io",
+  eu: "https://api.eu.pingram.io",
+  ca: "https://api.ca.pingram.io",
+};
 
 interface PingramErrorBody {
   error?: { code?: string; message?: string; fix?: string };
@@ -32,8 +43,15 @@ export class PingramEmailProvider extends EmailProvider {
       );
     }
     const fromAddress = this.configService.get<string>("PINGRAM_FROM_EMAIL");
+    const region = this.configService.get<string>("PINGRAM_REGION") ?? "us";
+    const host = REGION_HOSTS[region];
+    if (!host) {
+      throw new Error(
+        `Unknown PINGRAM_REGION "${region}" — expected one of: ${Object.keys(REGION_HOSTS).join(", ")}.`,
+      );
+    }
 
-    const response = await fetch(PINGRAM_EMAIL_ENDPOINT, {
+    const response = await fetch(`${host}/email`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

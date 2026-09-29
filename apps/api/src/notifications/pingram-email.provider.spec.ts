@@ -38,6 +38,39 @@ describe("PingramEmailProvider", () => {
     });
   });
 
+  it("hits the region-specific host — Pingram's account data doesn't exist cross-region, even for a genuinely valid key", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ trackingId: "abc" }) });
+    const euConfig: Record<string, string> = { ...config, PINGRAM_REGION: "eu" };
+    const provider = new PingramEmailProvider({
+      get: (key: string) => euConfig[key],
+    } as ConfigService);
+
+    await provider.send({ to: "alice@example.com", subject: "s", body: "b" });
+
+    expect(fetchMock).toHaveBeenCalledWith("https://api.eu.pingram.io/email", expect.anything());
+  });
+
+  it("defaults to the us region when PINGRAM_REGION is unset (matches Pingram's own SDK default)", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ trackingId: "abc" }) });
+    const provider = new PingramEmailProvider(configService);
+
+    await provider.send({ to: "alice@example.com", subject: "s", body: "b" });
+
+    expect(fetchMock).toHaveBeenCalledWith("https://api.pingram.io/email", expect.anything());
+  });
+
+  it("throws on an unrecognized region rather than silently hitting the wrong host", async () => {
+    const badRegionConfig: Record<string, string> = { ...config, PINGRAM_REGION: "au" };
+    const provider = new PingramEmailProvider({
+      get: (key: string) => badRegionConfig[key],
+    } as ConfigService);
+
+    await expect(provider.send({ to: "a@example.com", subject: "s", body: "b" })).rejects.toThrow(
+      /PINGRAM_REGION/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("escapes HTML-significant characters in the plain-text body", async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
     const provider = new PingramEmailProvider(configService);

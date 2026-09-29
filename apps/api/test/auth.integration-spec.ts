@@ -25,6 +25,10 @@ describe("Auth + tenant isolation (integration)", () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     process.env.DATABASE_URL = container.getConnectionUri();
     process.env.JWT_ACCESS_SECRET = "integration-test-secret";
+    // Tests must never depend on a real external provider being configured
+    // (or paid/rate-limited) in the developer's local .env — always mock.
+    process.env.EMAIL_PROVIDER = "mock";
+    process.env.SMS_PROVIDER = "mock";
     // This suite makes far more requests than any real per-route limit
     // (G-40) allows — rate limiting itself is covered by its own dedicated
     // suite (rate-limit.integration-spec.ts), not re-tested here.

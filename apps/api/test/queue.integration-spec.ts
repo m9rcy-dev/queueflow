@@ -26,6 +26,10 @@ describe("Queue domain (integration)", () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     process.env.DATABASE_URL = container.getConnectionUri();
     process.env.JWT_ACCESS_SECRET = "integration-test-secret";
+    // Tests must never depend on a real external provider being configured
+    // (or paid/rate-limited) in the developer's local .env — always mock.
+    process.env.EMAIL_PROVIDER = "mock";
+    process.env.SMS_PROVIDER = "mock";
     // This suite (especially the concurrency test) makes far more join
     // requests than the real per-route limit (G-40) allows — rate
     // limiting itself is covered by its own dedicated suite

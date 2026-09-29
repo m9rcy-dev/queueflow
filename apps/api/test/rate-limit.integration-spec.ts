@@ -24,6 +24,10 @@ describe("Rate limiting on the public join endpoint (integration)", () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     process.env.DATABASE_URL = container.getConnectionUri();
     process.env.JWT_ACCESS_SECRET = "integration-test-secret";
+    // Tests must never depend on a real external provider being configured
+    // (or paid/rate-limited) in the developer's local .env — always mock.
+    process.env.EMAIL_PROVIDER = "mock";
+    process.env.SMS_PROVIDER = "mock";
     delete process.env.DISABLE_RATE_LIMITING;
 
     execSync("npx prisma migrate deploy", {
