@@ -52,6 +52,10 @@ import { NotificationsService } from "./notifications.service";
       inject: [ConfigService, MockSmsProvider],
     },
   ],
-  exports: [NotificationsService],
+  // EmailProvider is also exported directly (Phase 9) — CustomerAuthService
+  // sends OTP emails straight through it rather than via the outbox
+  // (NotificationsService), since a login code must be sent synchronously,
+  // not fire-and-forget.
+  exports: [NotificationsService, EmailProvider],
 })
 export class NotificationsModule {}

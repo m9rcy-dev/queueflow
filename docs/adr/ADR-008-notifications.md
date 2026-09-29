@@ -68,9 +68,9 @@ the project is currently in a cost-conscious hobby/sample phase.
 - **Verified 2026-09-29**: a real email, sent through the live Pingram API with a real account key
   (region `eu`), was received. `PingramEmailProvider`'s wiring, auth, region selection, and error
   handling are all confirmed correct against the real service, not just mocks.
-- Today, every queue notification is SMS-channel by construction (anonymous walk-ins only ever supply
-  a phone — see G-32) — until Phase 9's customer accounts capture a real email address, switching
-  `EMAIL_PROVIDER=pingram` wires up real email sending but has no live queue traffic to exercise it.
-  `PingramEmailProvider` is still fully built and unit/integration-tested (including a real customer
-  record with an email set directly, proving the EMAIL-channel routing itself), just not yet reachable
-  through the anonymous join flow.
+- **Updated 2026-09-29 (Phase 9)**: customer accounts now capture a real email address (`Customer.email`,
+  set at signup) — `EmailProvider`/`PingramEmailProvider` are reachable through real, non-test-only
+  traffic for the first time: customer login-code OTP emails go straight through `EmailProvider`, the
+  same interface a queue notification would use. An anonymous walk-in join is still SMS-channel by
+  construction (only a phone is captured there), unless that phone happens to already belong to a
+  signed-up account (the join flow's upsert links it automatically — see Phase 9's roadmap entry).

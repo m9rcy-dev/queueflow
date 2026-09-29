@@ -80,6 +80,21 @@ describe("TokenService", () => {
     });
   });
 
+  describe("customer access tokens (Phase 9, D-09)", () => {
+    it("round-trips through the JwtService with the customer type discriminator", () => {
+      const token = service.generateCustomerAccessToken({
+        sub: "customer-1",
+        tenantId: "tenant-1",
+        type: "customer",
+      });
+      const jwt = new JwtService({ secret: "test-secret" });
+      const payload = jwt.verify(token);
+      expect(payload.sub).toBe("customer-1");
+      expect(payload.tenantId).toBe("tenant-1");
+      expect(payload.type).toBe("customer");
+    });
+  });
+
   describe("pending tokens (tenant selection, G-03)", () => {
     it("verifies a token it just generated", () => {
       const pending = service.generatePendingToken("user-1");

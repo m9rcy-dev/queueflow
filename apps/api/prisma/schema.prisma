@@ -285,16 +285,62 @@ model Customer {
   // format the customer typed.
   phoneE164 String
   firstName String?
+  // Phase 9: once a customer creates an account, this becomes their login
+  // credential (email OTP) — unique per tenant, same multi-NULL-allowed
+  // pattern as idempotencyKey elsewhere (an anonymous walk-in's Customer
+  // row has no email and that's fine; only account-holders need one).
   email     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  entries QueueEntry[]
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entries       QueueEntry[]
+  codes         Code[]
+  loginCodes    CustomerLoginCode[]
+  refreshTokens CustomerRefreshToken[]
 
   @@unique([tenantId, phoneE164])
+  @@unique([tenantId, email])
   @@index([tenantId])
   @@map("customers")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 (Customer Accounts & Portal, D-09/G-55) — a customer account
+// belongs to exactly one tenant (unlike staff, who can span tenants via
+// TenantUser), so there's no User/TenantUser-style split here: Customer
+// itself is the login-capable entity. Mirrors LoginCode/RefreshToken's
+// exact shape (ADR-004) — same OTP-hash-and-verify, same opaque rotating
+// refresh token, just keyed by customerId instead of userId.
+// ---------------------------------------------------------------------------
+
+model CustomerLoginCode {
+  id         String    @id @default(uuid())
+  customerId String
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_login_codes")
+}
+
+model CustomerRefreshToken {
+  id         String    @id @default(uuid())
+  customerId String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_refresh_tokens")
 }
 
 enum QueueStatus {
@@ -442,11 +488,11 @@ model QueueEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  queue         Queue       @relation(fields: [queueId], references: [id], onDelete: Cascade)
-  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  customer      Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  assignedStaff TenantUser? @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queue         Queue                @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  service       Service              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedStaff TenantUser?          @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
   notifications NotificationOutbox[]
 
   @@unique([tenantId, idempotencyKey])
@@ -491,12 +537,12 @@ model NotificationOutbox {
   // Phone (E.164) or email — resolved and fixed at enqueue time, not
   // re-derived from the customer at send time (the customer's own contact
   // details could change in between; the outbox row is what was promised).
-  recipient String
+  recipient    String
   // Finalized message text at enqueue time — an outbox row is a concrete
   // thing to send, not a template reference that copy changes could alter
   // after the fact.
-  body   String
-  status NotificationOutboxStatus @default(PENDING)
+  body         String
+  status       NotificationOutboxStatus @default(PENDING)
 
   createdAt DateTime  @default(now())
   sentAt    DateTime?
@@ -525,6 +571,19 @@ enum CodeContextType {
   // is repurposed or the link leaks), same `active` boolean every other
   // context type already uses for exactly that purpose.
   DISPLAY
+  // Phase 9 — a business-owned, tenant-only code (no queue/customer
+  // binding) for the self-service "sign up here" poster (D-10, G-56).
+  // Resolves to just {tenant}; the customer signup/login form lives
+  // behind it. Deliberately not the full LOCATION/QUEUE/SERVICE/TABLE/
+  // APPOINTMENT/KIOSK/COUNTER set from §4.5/ADR-005 — build the concrete
+  // case only, same discipline as QUEUE (Phase 4) and DISPLAY (Phase 6).
+  GENERAL
+  // Phase 9 (Customer Accounts, G-52) — a customer-owned "loyalty card"
+  // code, persistent across visits, distinct from queue_entry.publicToken
+  // (which is per-ticket and secret, G-45). Consumption via a physical
+  // scanner for instant-join is Phase 10's job (D-11) — Phase 9 only
+  // mints, displays, and regenerates it.
+  CUSTOMER_IDENTITY
 }
 
 model Code {
@@ -535,13 +594,16 @@ model Code {
   publicCode  String          @unique
   contextType CodeContextType
   queueId     String?
+  customerId  String?
   active      Boolean         @default(true)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  queue  Queue? @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queue    Queue?    @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([customerId])
   @@map("codes")
 }

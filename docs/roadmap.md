@@ -211,13 +211,41 @@ live Pingram API and received by the user.
 
 ### Phase 9 — Customer Accounts & Portal _(§4.5 Phase A)_
 
+**Status: ✅ Done** (2026-09-29)
+
 Tenant-scoped customer accounts (D-09), `CUSTOMER_IDENTITY` code issuance + regeneration (staff- or
 customer-initiated, G-52), login via email OTP, portal (live position + personal code, G-55).
 Staff-initiated in-person signup (loyalty-card framing, G-56) plus the self-service "sign up here"
-poster (reuses `LOCATION`/`GENERAL` capability, no new hardware).
+poster — a new minimal `GENERAL` code context (D-10), tenant-only, no queue/customer binding.
+
+`Customer` is the login-capable entity directly (no `TenantUser`-style membership split — a customer
+account never spans tenants, unlike staff). New `CustomerLoginCode`/`CustomerRefreshToken` tables mirror
+staff's `LoginCode`/`RefreshToken` exactly. A separate `'customer-jwt'` passport strategy + guard
+(`CustomerJwtAuthGuard`) keeps a customer token from ever being accepted by a staff route or vice versa
+(verified live and in the integration suite) — the staff-wide `JwtAuthGuard` stays untouched. OTP emails
+go straight through Phase 8's `EmailProvider` (real Pingram delivery, not the older console-only
+`MailService` staff auth uses) — proven live during Phase 8, now actually reachable via real customer
+traffic.
+
+Staff-initiated signup (`POST /tenants/me/customers`) mints the identity code immediately, no OTP —
+staff already verified the person in person. Self-service signup
+(`POST /public/customers/signup`, reached via a `GENERAL` code's landing page) requires an email and
+sends a login code before any session is issued. Both paths upsert on `(tenantId, phoneE164)` — the
+exact same key the anonymous walk-in join flow already upserts on — so an account holder's future
+anonymous joins (or past walk-in history) link to the same `Customer` row automatically; verified live
+and in the integration suite, with zero code changes needed in `queue-entries.service.ts`'s `join()`.
+Portal: `GET/POST /customers/me/*` (profile, identity code, regenerate, live active-entry). Frontend:
+`/c/[code]` (signup-or-login landing) and `/c/portal` (personal QR code, live queue status), a new
+`CustomerApiClient` in `@queueflow/api-client`.
 
 **Acceptance:** a customer can be signed up in person or self-serve, log in, see their personal code
-and current queue status. No kiosk hardware required yet.
+and current queue status. No kiosk hardware required yet. Verified via a dedicated integration suite (12
+tests: GENERAL code mint/resolve, self-service signup + OTP login, identity-code regeneration, staff
+in-person signup, anonymous-join account linking, email-conflict rejection, wrong-OTP rejection,
+refresh/logout rotation, cross-token isolation, CUSTOMER_IDENTITY's public non-resolvability) plus
+targeted unit tests for `CustomersService`/`CustomerAuthService`/the widened `CodesService`, and a
+manual curl- and real-browser-driven run of the whole flow end to end. 162 unit + 53 integration tests,
+`pnpm quality` green.
 
 ### Phase 10 — Kiosk Hardware & Guest Cards _(§4.5 Phase B)_
 

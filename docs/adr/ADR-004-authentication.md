@@ -29,6 +29,14 @@ superseding the original plan's §41 (which specified email/password for MVP).
   URL. No `DISPLAY_ONLY` role.
 - **Customer phone verification before joining: no.** Rate limiting + optional invisible Turnstile
   instead — the join notification itself is the proof the contact info is real.
+- **Customer accounts (Phase 9, D-09): email OTP, same mechanism as staff, but a completely separate
+  credential.** `Customer` is the login-capable entity directly — no `TenantUser`-style membership
+  split, since a customer account never spans tenants (unlike staff, whose `User` can hold several).
+  Tokens are minted by a separate `'customer-jwt'` passport strategy (distinct from staff's `'jwt'`,
+  which the global `JwtAuthGuard` uses) with a `type: "customer"` discriminator in the payload as
+  defense-in-depth, so a customer token can never be accepted by a staff route or vice versa even if
+  both happened to share a JWT secret and a `sub`/`tenantId` shape. `CustomerLoginCode`/
+  `CustomerRefreshToken` mirror `LoginCode`/`RefreshToken` exactly.
 
 ## Alternatives
 

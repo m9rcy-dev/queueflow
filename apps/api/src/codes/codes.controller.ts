@@ -38,6 +38,33 @@ export class QueueCodesController {
   }
 }
 
+/** The tenant-level "sign up here" poster code (Phase 9, D-10, G-56) — not queue-bound, unlike QueueCodesController above. */
+@Controller("tenants/me/codes")
+export class TenantCodesController {
+  constructor(private readonly codesService: CodesService) {}
+
+  @Post()
+  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  create(@CurrentUser() user: RequestUser) {
+    return this.codesService.createGeneral(user.tenantId);
+  }
+
+  @Get()
+  list(@CurrentUser() user: RequestUser) {
+    return this.codesService.listGeneral(user.tenantId);
+  }
+
+  @Post(":codeId/deactivate")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deactivate(
+    @CurrentUser() user: RequestUser,
+    @Param("codeId") codeId: string,
+  ): Promise<void> {
+    await this.codesService.deactivateGeneral(user.tenantId, codeId);
+  }
+}
+
 @Controller("public/codes")
 export class PublicCodesController {
   constructor(private readonly codesService: CodesService) {}

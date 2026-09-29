@@ -1,25 +1,24 @@
 /**
  * The minimal slice of the unified code model (§4.5/ADR-005) built across
- * Phases 4 and 6 — QUEUE (customer join) and DISPLAY (the TV board, G-07)
- * only. CUSTOMER_IDENTITY/GUEST_CARD/APPOINTMENT_TICKET are Phases 9/10/C's
- * job; do not add them here early.
+ * Phases 4, 6, and 9 — QUEUE (customer join), DISPLAY (the TV board,
+ * G-07), GENERAL (the tenant-only "sign up here" poster, D-10), and
+ * CUSTOMER_IDENTITY (a customer's own persistent "loyalty card" code,
+ * G-52). GUEST_CARD/APPOINTMENT_TICKET are Phases 10/C's job; do not add
+ * them here early.
  */
-export type CodeContextType = "QUEUE" | "DISPLAY";
+export type CodeContextType = "QUEUE" | "DISPLAY" | "GENERAL" | "CUSTOMER_IDENTITY";
 
 export interface CodeSummary {
   publicCode: string;
   contextType: CodeContextType;
-  queueId: string;
+  /** Only set for QUEUE codes. */
+  queueId: string | null;
+  /** Only set for CUSTOMER_IDENTITY codes. */
+  customerId: string | null;
 }
 
-/**
- * What a customer's phone sees immediately after scanning/opening a QUEUE
- * code — deliberately minimal (plan §9's landing page). QUEUE-only: a
- * DISPLAY code is never meant to be resolved through this join-flow
- * endpoint, and is rejected the same uniform way as an unrecognized code
- * (see CodesService.resolve).
- */
-export interface CodeResolution {
+/** What a customer's phone sees immediately after scanning/opening a QUEUE code — deliberately minimal (plan §9's landing page). */
+export interface QueueCodeResolution {
   contextType: "QUEUE";
   tenant: { name: string };
   location: { name: string };
@@ -28,6 +27,22 @@ export interface CodeResolution {
   /** Only services this queue actually accepts right now (active + queueEnabled) — never the full catalog. */
   services: Array<{ id: string; name: string; durationMinutes: number }>;
 }
+
+/** What a customer sees after scanning a GENERAL "sign up here" poster (Phase 9, D-10) — just enough to reach the signup/login form. */
+export interface GeneralCodeResolution {
+  contextType: "GENERAL";
+  tenant: { id: string; name: string };
+  capabilities: ["CREATE_ACCOUNT"];
+}
+
+/**
+ * DISPLAY and CUSTOMER_IDENTITY are deliberately not resolved through this
+ * endpoint at all (see CodesService.resolve's own comment) — DISPLAY needs
+ * a live feed, not a one-shot lookup (its own SSE endpoint instead), and
+ * CUSTOMER_IDENTITY has no public consumer yet (Phase 10's scanner job).
+ * Presenting either here gets the same uniform 404 as an unrecognized code.
+ */
+export type CodeResolution = QueueCodeResolution | GeneralCodeResolution;
 
 /**
  * The public TV/board's live state (Phase 6, G-07) — ticket numbers and

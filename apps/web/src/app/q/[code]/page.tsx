@@ -4,20 +4,23 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button, Card, Input } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
-import type { CodeResolution } from "@queueflow/types";
+import type { QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 
 /**
  * The QR-landing page (plan §9/§19) — scan a QUEUE-context code, land here,
  * join with just a name and mobile number. No account, no app install
- * (visual doc §7's customer UX principle).
+ * (visual doc §7's customer UX principle). QUEUE-only: a GENERAL code
+ * (Phase 9's "sign up here" poster) resolves fine at the API layer but
+ * belongs on /c/[code] instead — presented here, it's treated the same as
+ * an unrecognized code rather than crashing on the missing `services` field.
  */
 export default function CodeLandingPage() {
   const params = useParams<{ code: string }>();
   const code = params.code;
   const router = useRouter();
 
-  const [resolution, setResolution] = useState<CodeResolution | null>(null);
+  const [resolution, setResolution] = useState<QueueCodeResolution | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [serviceId, setServiceId] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -32,6 +35,10 @@ export default function CodeLandingPage() {
     publicApi
       .resolveCode(code)
       .then((data) => {
+        if (data.contextType !== "QUEUE") {
+          setLoadError("This code isn't recognized.");
+          return;
+        }
         setResolution(data);
         if (data.services.length === 1) {
           setServiceId(data.services[0].id);

@@ -1,7 +1,7 @@
 # Project Status
 
 Last Updated: 2026-09-29
-Current Phase: Phase 9 — Customer Accounts & Portal (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–8 done)
+Current Phase: Phase 10 — Kiosk Hardware & Guest Cards (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–9 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -89,6 +89,16 @@ Current Task: See Next Task below
 - Tests: 4 new unit (`mock-email.provider.spec.ts`, `mock-sms.provider.spec.ts`, `pingram-email.provider.spec.ts` — mocks `fetch`, asserts the Bearer header, region-to-host mapping, HTML-escaping, and that a failure never logs the API key) + `notifications.service.spec.ts` updated for the two-provider split → 135 total unit; 1 new integration test (EMAIL-channel routing via a real Postgres customer record) → 41 total integration. `pnpm quality` green end to end.
 - Manual verification: real dev-server boot with `SMS_PROVIDER=bogus` fails loudly at startup with the exact intended error (proving no silent fallback); `EMAIL_PROVIDER=pingram` with no key boots cleanly (the check is deferred to send-time, not startup); a full join → call-next cycle against a real customer record with an email set produced a real, received Pingram email end to end.
 
+### Phase 9 — Customer Accounts & Portal
+
+- **`Customer` is the login-capable entity directly** (D-09) — no `TenantUser`-style membership split, since a customer account never spans tenants (unlike staff). New `CustomerLoginCode`/`CustomerRefreshToken` tables mirror `LoginCode`/`RefreshToken` exactly; a separate `'customer-jwt'` passport strategy + `CustomerJwtAuthGuard` keep a customer token from ever being accepted by a staff route (or vice versa) — the staff-wide `JwtAuthGuard` is untouched.
+- **New `GENERAL` code context** (D-10) — the tenant-only "sign up here" poster, minimal (`{tenant}` only, no queue/customer binding), same "build the concrete case only" discipline as `QUEUE`/`DISPLAY`. `CodesService.resolve()` widened to a discriminated union (`QueueCodeResolution | GeneralCodeResolution`); `CUSTOMER_IDENTITY` deliberately has no public resolver yet (Phase 10's scanner job).
+- **Two signup paths, one shared upsert**: staff-initiated in-person (`POST /tenants/me/customers`, mints the identity code immediately, no OTP — staff already verified the person) and self-service via a `GENERAL` code (`POST /public/customers/signup`, email required, sends an OTP before any session issues). Both upsert on `(tenantId, phoneE164)` — the same key the anonymous join flow already upserts on — so an account holder's future anonymous joins (or past walk-in history) link to the same `Customer` row automatically; verified live and in the integration suite, with **zero code changes** needed in `queue-entries.service.ts`'s `join()`.
+- **OTP emails go through Phase 8's real `EmailProvider`** (not the older console-only `MailService` staff auth still uses) — this is what finally makes `PingramEmailProvider` reachable through real customer traffic, not just direct-DB-set test data.
+- Portal: `GET/POST /customers/me/*` (profile + identity code + regenerate + live active-entry, G-55). Frontend: `/c/[code]` (signup-or-login landing) and `/c/portal` (personal QR code via the existing `TicketQrCode` component, live queue status), a new `CustomerApiClient` in `@queueflow/api-client` mirroring `StaffApiClient`'s Bearer/refresh-retry shape.
+- Tests: 8 new `customers.service.spec.ts` + 10 new `customer-auth.service.spec.ts` + 8 new `codes.service.spec.ts` (GENERAL/CUSTOMER_IDENTITY) + 1 new `token.service.spec.ts` → 162 total unit; new `customer-auth.integration-spec.ts` (12 tests: GENERAL mint/resolve, self-service signup + OTP login, identity-code regeneration, staff in-person signup, anonymous-join account linking, email-conflict rejection, wrong-OTP rejection, refresh/logout rotation, cross-token isolation, CUSTOMER_IDENTITY's public non-resolvability) → 53 total integration. `pnpm quality` green end to end.
+- Manual verification: full curl-driven run of every endpoint (signup, OTP login, portal, regenerate, staff creation, anonymous-join linking, cross-token rejection) against a real Postgres, plus a real-browser (Playwright) run of the `/c/[code]` → OTP → `/c/portal` → regenerate → logout → re-login flow.
+
 ## Decisions Made
 
 See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
@@ -97,7 +107,7 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 - **G-40 partial**: Cloudflare Turnstile (the specific bot-check the plan calls for on the join POST) is not integrated — only IP-based rate limiting (`@nestjs/throttler`, 5/min on join) ships. Adding Turnstile requires an external Cloudflare account/site key.
 - Real SMS provider not integrated at all — only `MockSmsProvider` exists; `SMS_PROVIDER=pingram` (or anything but `mock`) throws at boot by design. Deliberately deferred (G-29) until real per-tenant cost caps exist and NZ SMS pricing is verified on Pingram's pricing page (their advertised free tier is described as "100 SMS to the US" — NZ isn't confirmed).
-- Every live queue notification today is still SMS-channel by construction — anonymous walk-ins only ever supply a phone (no email capture exists before Phase 9's customer accounts), so `EmailProvider`/`PingramEmailProvider` are proven correct (including a real live send) but not yet reachable through the actual customer join flow. Auth OTP/invite emails are unrelated — `MailService` is still `ConsoleMailService` (Phase 1, never in scope for Phase 8's notification providers).
+- An anonymous walk-in join is still SMS-channel by construction (only a phone is captured) — `EmailProvider`/`PingramEmailProvider` are now reachable through real customer traffic (Phase 9's account emails, proven live) but a queue *notification* for an unlinked walk-in still has no email to send to unless that phone number already belongs to a signed-up account. Auth OTP/invite emails for staff are unrelated — `MailService` is still `ConsoleMailService` (Phase 1, never in scope for Phase 8/9's `EmailProvider`).
 - Consent text + versioning (G-48) not yet implemented — structural requirement, decided in planning; real legal copy needs to exist before any real business's customer data flows through this.
 - Network-level rate limiting (G-38, Redis/Upstash-backed, for horizontal-scale/multi-instance deployments) not yet wired — deferred to Phase 12 as scoped. Current rate limiting is in-process only, correct for the current single-instance deployment (D-06).
 - No background job/scheduler exists — business-hours-based auto-closing (as a fallback to staff-controlled closing, G-16) and auto-no-show-after-grace-period (G-15) are both designed but not implemented; staff must act manually for now.
@@ -111,11 +121,11 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-**Phase 9 — Customer Accounts & Portal** _(§4.5 Phase A)_, per `docs/roadmap.md`:
+**Phase 10 — Kiosk Hardware & Guest Cards** _(§4.5 Phase B)_, per `docs/roadmap.md`:
 
-1. Tenant-scoped customer accounts (D-09) — a customer account belongs to one business, not global; login via email OTP, reusing the same OTP mechanism already proven for staff (Phase 1), not a new auth system.
-2. `CUSTOMER_IDENTITY` code issuance + regeneration (G-52) — the next slice of the unified code model (§4.5/ADR-005) after `QUEUE` (Phase 4) and `DISPLAY` (Phase 6). Staff- or customer-initiated regeneration if a code is lost/leaked.
-3. Customer portal: live position + personal code, current queue status (G-55) — this is also what finally gives a real customer an `email` on file, making the `EmailProvider` wiring from Phase 8 reachable through actual customer traffic for the first time, not just direct-DB-set test data.
-4. Staff-initiated in-person signup (loyalty-card framing, G-56) plus a self-service "sign up here" poster (reuses the existing `LOCATION`/`GENERAL` code capability — no new hardware).
+1. The physical counter scanner (D-10) — the actual consumption endpoint for both a `CUSTOMER_IDENTITY` code (minted in Phase 9, no public resolver yet) and a guest card.
+2. Numbered guest-card pool (D-14: `guest_1`…`guest_N`, zero customer data attached, idempotent scan, auto-release back to the pool on the entry's terminal state).
+3. Self-serve instant join for both guest cards and `CUSTOMER_IDENTITY` codes (D-11) — scan and you're in the queue, no form.
+4. Staff-assisted cancel for guest-card users specifically — no self-service path exists for them by design (no account, no way to prove it's really them).
 
-Acceptance (per roadmap): a customer can be signed up in person or self-serve, log in, see their personal code and current queue status. No kiosk hardware required yet (that's Phase 10).
+Acceptance (per roadmap): a physical guest card and a customer's personal code both self-serve-join correctly at the counter scanner; re-scanning an active card/code never duplicates.

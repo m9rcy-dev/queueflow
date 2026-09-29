@@ -33,6 +33,19 @@ export interface AccessTokenPayload {
   role: TenantRole;
 }
 
+/**
+ * Customer accounts (Phase 9, D-09) get their own access-token shape, not
+ * AccessTokenPayload — there's no `role` (a customer isn't staff), and the
+ * `type` discriminator exists purely as defense-in-depth so a customer
+ * token can never be mistaken for (or replayed against) a staff-only route
+ * even if both happened to share a JWT secret and a `sub`/`tenantId` shape.
+ */
+export interface CustomerAccessTokenPayload {
+  sub: string;
+  tenantId: string;
+  type: "customer";
+}
+
 export interface PendingTokenPayload {
   sub: string;
   purpose: typeof PENDING_TOKEN_PURPOSE;
@@ -91,6 +104,11 @@ export class TokenService {
   }
 
   generateAccessToken(payload: AccessTokenPayload): string {
+    const expiresIn = this.configService.get("JWT_ACCESS_TTL") ?? "1h";
+    return this.jwtService.sign(payload, { expiresIn });
+  }
+
+  generateCustomerAccessToken(payload: CustomerAccessTokenPayload): string {
     const expiresIn = this.configService.get("JWT_ACCESS_TTL") ?? "1h";
     return this.jwtService.sign(payload, { expiresIn });
   }

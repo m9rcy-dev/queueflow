@@ -9,5 +9,6 @@ import { QueueEntriesService } from "./queue-entries.service";
   imports: [QueuesModule, NotificationsModule],
   controllers: [QueueEntriesController, PublicQueueEntriesController],
   providers: [QueueEntriesService],
+  exports: [QueueEntriesService],
 })
 export class QueueEntriesModule {}

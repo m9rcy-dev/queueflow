@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Prisma, type NotificationChannel, type NotificationType } from "@prisma/client";
 import type {
+  CustomerActiveEntry,
   JoinQueueResponse,
   QueueEntryStatus,
   QueueEntrySummary,
@@ -230,6 +231,27 @@ export class QueueEntriesService {
       entry,
       await this.computePosition(entry, await this.servingCapacityFor(entry.queueId)),
     );
+  }
+
+  /**
+   * The customer portal's own live status (Phase 9, G-55) — this customer's
+   * currently active entry in this tenant, if any. Most recently joined
+   * wins on the rare chance more than one is active (maxActiveTicketsPerCustomer
+   * defaults to 1 per queue, but a customer could in principle hold entries
+   * in two different queues at once).
+   */
+  async getActiveForCustomer(
+    tenantId: string,
+    customerId: string,
+  ): Promise<CustomerActiveEntry | null> {
+    const entry = await this.prisma.queueEntry.findFirst({
+      where: { tenantId, customerId, status: { in: ACTIVE_STATUSES } },
+      orderBy: { joinedAt: "desc" },
+      include: { queue: { select: { name: true, servingCapacity: true } } },
+    });
+    if (!entry) return null;
+    const positionInfo = await this.computePosition(entry, entry.queue.servingCapacity);
+    return { ...this.toSummary(entry, positionInfo), queueName: entry.queue.name };
   }
 
   async list(

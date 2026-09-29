@@ -51,3 +51,12 @@ terminal.
   than forking into a second resolver. Lifecycle rules (creation, rotation, expiry) differ per kind
   at the service layer — normal branching, not an architectural fork.
 - `APPOINTMENT_TICKET` doesn't exist before the appointment engine does — rides with Phase C.
+- **Built incrementally as concrete nullable FK columns, not the generalized `owner_type`/`owner_id`
+  pair this ADR originally sketched** — `Code` gained `queueId` (Phase 4, `QUEUE`), then `customerId`
+  (Phase 9, `CUSTOMER_IDENTITY`), each nullable and populated only for its own context type, rather
+  than a single polymorphic owner reference up front. `GENERAL` (Phase 9, the "sign up here" poster)
+  needed neither — just `tenantId`, which every code already carries. Deliberate: the same
+  "build the concrete case only" discipline as everywhere else in this codebase (see schema comments
+  on `CodeContextType`) — a real `owner_type`/`owner_id` polymorphic column is easy to add later if a
+  genuinely new owner kind (e.g. `GUEST_CARD`, `APPOINTMENT_TICKET`) needs it, and isn't worth the
+  type-safety cost until then.

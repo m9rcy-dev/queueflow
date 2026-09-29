@@ -22,6 +22,7 @@ describe("CodesService", () => {
       code: {
         create: jest.fn(),
         findMany: jest.fn(),
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
@@ -91,6 +92,95 @@ describe("CodesService", () => {
     });
   });
 
+  describe("createGeneral (Phase 9, D-10)", () => {
+    it("mints a GENERAL-context code with no queueId, no queue ownership check needed", async () => {
+      prisma.code.create.mockResolvedValue({ ...codeRow, contextType: "GENERAL", queueId: null });
+      const result = await service.createGeneral(tenantId);
+      expect(queuesService.findOwnedQueue).not.toHaveBeenCalled();
+      expect(prisma.code.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ tenantId, contextType: "GENERAL" }),
+      });
+      expect(result.contextType).toBe("GENERAL");
+    });
+  });
+
+  describe("deactivateGeneral", () => {
+    it("404s if the code doesn't belong to this tenant / isn't GENERAL", async () => {
+      prisma.code.updateMany.mockResolvedValue({ count: 0 });
+      await expect(service.deactivateGeneral(tenantId, "code-1")).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it("deactivates a GENERAL code owned by this tenant", async () => {
+      prisma.code.updateMany.mockResolvedValue({ count: 1 });
+      await service.deactivateGeneral(tenantId, "code-1");
+      expect(prisma.code.updateMany).toHaveBeenCalledWith({
+        where: { id: "code-1", tenantId, contextType: "GENERAL" },
+        data: { active: false },
+      });
+    });
+  });
+
+  describe("createForCustomer (Phase 9, G-52)", () => {
+    it("reuses an existing active identity code rather than minting a duplicate", async () => {
+      const existing = {
+        ...codeRow,
+        contextType: "CUSTOMER_IDENTITY",
+        queueId: null,
+        customerId: "cust-1",
+      };
+      prisma.code.findFirst.mockResolvedValue(existing);
+
+      const result = await service.createForCustomer(tenantId, "cust-1");
+
+      expect(prisma.code.create).not.toHaveBeenCalled();
+      expect(result.publicCode).toBe(existing.publicCode);
+    });
+
+    it("mints a fresh CUSTOMER_IDENTITY code when none is active yet", async () => {
+      prisma.code.findFirst.mockResolvedValue(null);
+      prisma.code.create.mockResolvedValue({
+        ...codeRow,
+        contextType: "CUSTOMER_IDENTITY",
+        queueId: null,
+        customerId: "cust-1",
+      });
+
+      const result = await service.createForCustomer(tenantId, "cust-1");
+
+      expect(prisma.code.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId,
+          customerId: "cust-1",
+          contextType: "CUSTOMER_IDENTITY",
+        }),
+      });
+      expect(result.contextType).toBe("CUSTOMER_IDENTITY");
+    });
+  });
+
+  describe("regenerateForCustomer", () => {
+    it("deactivates whatever's active first, then mints a new code (never reuses the old publicCode)", async () => {
+      prisma.code.updateMany.mockResolvedValue({ count: 1 });
+      prisma.code.create.mockResolvedValue({
+        ...codeRow,
+        publicCode: "NEWCODE1",
+        contextType: "CUSTOMER_IDENTITY",
+        queueId: null,
+        customerId: "cust-1",
+      });
+
+      const result = await service.regenerateForCustomer(tenantId, "cust-1");
+
+      expect(prisma.code.updateMany).toHaveBeenCalledWith({
+        where: { tenantId, customerId: "cust-1", contextType: "CUSTOMER_IDENTITY", active: true },
+        data: { active: false },
+      });
+      expect(result.publicCode).toBe("NEWCODE1");
+    });
+  });
+
   describe("resolve", () => {
     it("404s for an unknown code", async () => {
       prisma.code.findUnique.mockResolvedValue(null);
@@ -100,6 +190,33 @@ describe("CodesService", () => {
     it("404s for a deactivated code (never distinguishes this from 'unknown')", async () => {
       prisma.code.findUnique.mockResolvedValue({ ...codeRow, active: false });
       await expect(service.resolve("ABCD2345")).rejects.toThrow(NotFoundException);
+    });
+
+    it("404s for a CUSTOMER_IDENTITY code — no public consumer exists yet (Phase 10's job)", async () => {
+      prisma.code.findUnique.mockResolvedValue({
+        ...codeRow,
+        contextType: "CUSTOMER_IDENTITY",
+        queueId: null,
+        customerId: "cust-1",
+      });
+      await expect(service.resolve("ABCD2345")).rejects.toThrow(NotFoundException);
+    });
+
+    it("resolves a GENERAL code to just the tenant (Phase 9, D-10)", async () => {
+      prisma.code.findUnique.mockResolvedValue({
+        ...codeRow,
+        contextType: "GENERAL",
+        queueId: null,
+        tenant: { id: "tenant-1", name: "Joe's Barbers" },
+      });
+
+      const result = await service.resolve("ABCD2345");
+
+      expect(result).toEqual({
+        contextType: "GENERAL",
+        tenant: { id: "tenant-1", name: "Joe's Barbers" },
+        capabilities: ["CREATE_ACCOUNT"],
+      });
     });
 
     it("404s for a DISPLAY code — this endpoint only ever resolves QUEUE codes", async () => {
