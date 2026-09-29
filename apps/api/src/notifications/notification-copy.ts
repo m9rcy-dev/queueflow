@@ -1,8 +1,10 @@
+import type { NotificationType } from "@prisma/client";
+
 /**
  * Pure message-body builders (plan §30/§31) — finalized once at enqueue
  * time and stored on the outbox row itself (NotificationOutbox.body), not
- * recomputed at send time. Kept deliberately plain-text; a real provider
- * (Phase 8) can still choose to wrap this in an email template, but SMS
+ * recomputed at send time. Kept deliberately plain-text; each EmailProvider
+ * implementation decides how (or whether) to render this as HTML — SMS
  * (the only channel every current customer actually resolves to) has no
  * such wrapping to do.
  */
@@ -32,4 +34,16 @@ export function buildRecalledMessage(params: {
   ticketNumber: number;
 }): string {
   return `${params.businessName}: reminder — ticket #${params.ticketNumber} is still being called. Please proceed to the counter now.`;
+}
+
+const EMAIL_SUBJECTS: Record<NotificationType, string> = {
+  APPROACHING: "You're approaching in line",
+  NEARLY_NEXT: "You're almost up!",
+  CALLED: "It's your turn!",
+  RECALLED: "Reminder: it's your turn",
+};
+
+/** Only meaningful for the EMAIL channel — SMS has no subject line. */
+export function buildEmailSubject(type: NotificationType): string {
+  return EMAIL_SUBJECTS[type];
 }

@@ -193,12 +193,18 @@ a manual curl-driven run cross-checked against the database directly. 125 unit +
 
 ### Phase 8 — Real Notifications (Pingram)
 
-Wire the real provider behind `NotificationProvider` (ADR-008) — **email first** (free, default
-channel), SMS as a later adapter once real per-tenant cost caps exist (G-29). Verify actual NZ SMS
-pricing on Pingram before enabling SMS for real. Consent text + versioning (G-48).
+**Status: 🔧 In progress — blocked on a real Pingram API key** (code complete 2026-09-29)
+
+Wire the real provider behind independently-swappable `EmailProvider`/`SmsProvider` interfaces
+(ADR-008, revised this phase from a single combined interface) — **email first** (free, default
+channel) via a real `PingramEmailProvider`, SMS as a later adapter once real per-tenant cost caps
+exist (G-29) — only `MockSmsProvider` exists today, and selecting anything else for `SMS_PROVIDER`
+throws at startup rather than silently no-op'ing. Consent text + versioning (G-48) not yet started.
 
 **Acceptance:** a real email is delivered through the configured provider; provider failure doesn't
-break queue operations; secrets aren't logged.
+break queue operations; secrets aren't logged. The latter two are done and tested; the first needs the
+user to create a Pingram account and set `PINGRAM_API_KEY` — nothing in this codebase can do that step.
+See `PROJECT_STATUS.md`'s Phase 8 entry for exactly what's built vs. what remains.
 
 ### Phase 9 — Customer Accounts & Portal _(§4.5 Phase A)_
 

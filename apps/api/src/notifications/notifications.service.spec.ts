@@ -1,17 +1,28 @@
 import { Test } from "@nestjs/testing";
 import { NotificationsService } from "./notifications.service";
-import { NotificationProvider } from "./notification-provider";
+import { EmailProvider } from "./email-provider";
+import { SmsProvider } from "./sms-provider";
 import { PrismaService } from "../prisma/prisma.service";
 
 describe("NotificationsService", () => {
   let service: NotificationsService;
   let prisma: { notificationOutbox: Record<string, jest.Mock> };
-  let provider: { send: jest.Mock };
+  let emailProvider: { send: jest.Mock };
+  let smsProvider: { send: jest.Mock };
 
-  const pendingRow = {
+  const smsPendingRow = {
     id: "outbox-1",
+    type: "CALLED" as const,
     channel: "SMS" as const,
     recipient: "+64211234567",
+    body: "You're up next!",
+    status: "PENDING" as const,
+  };
+  const emailPendingRow = {
+    id: "outbox-2",
+    type: "CALLED" as const,
+    channel: "EMAIL" as const,
+    recipient: "alice@example.com",
     body: "You're up next!",
     status: "PENDING" as const,
   };
@@ -25,13 +36,15 @@ describe("NotificationsService", () => {
         update: jest.fn(),
       },
     };
-    provider = { send: jest.fn().mockResolvedValue(undefined) };
+    emailProvider = { send: jest.fn().mockResolvedValue(undefined) };
+    smsProvider = { send: jest.fn().mockResolvedValue(undefined) };
 
     const module = await Test.createTestingModule({
       providers: [
         NotificationsService,
         { provide: PrismaService, useValue: prisma },
-        { provide: NotificationProvider, useValue: provider },
+        { provide: EmailProvider, useValue: emailProvider },
+        { provide: SmsProvider, useValue: smsProvider },
       ],
     }).compile();
 
@@ -64,8 +77,8 @@ describe("NotificationsService", () => {
   });
 
   describe("processPending", () => {
-    it("claims a pending row, sends it, and marks it SENT", async () => {
-      prisma.notificationOutbox.findMany.mockResolvedValue([pendingRow]);
+    it("routes an SMS row to SmsProvider", async () => {
+      prisma.notificationOutbox.findMany.mockResolvedValue([smsPendingRow]);
       prisma.notificationOutbox.updateMany.mockResolvedValue({ count: 1 });
 
       await service.processPending();
@@ -74,27 +87,41 @@ describe("NotificationsService", () => {
         where: { id: "outbox-1", status: "PENDING" },
         data: { status: "SENT", sentAt: expect.any(Date) },
       });
-      expect(provider.send).toHaveBeenCalledWith({
-        channel: "SMS",
-        recipient: "+64211234567",
+      expect(smsProvider.send).toHaveBeenCalledWith({
+        to: "+64211234567",
         body: "You're up next!",
       });
+      expect(emailProvider.send).not.toHaveBeenCalled();
+    });
+
+    it("routes an EMAIL row to EmailProvider, with a subject derived from the notification type", async () => {
+      prisma.notificationOutbox.findMany.mockResolvedValue([emailPendingRow]);
+      prisma.notificationOutbox.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.processPending();
+
+      expect(emailProvider.send).toHaveBeenCalledWith({
+        to: "alice@example.com",
+        subject: "It's your turn!",
+        body: "You're up next!",
+      });
+      expect(smsProvider.send).not.toHaveBeenCalled();
     });
 
     it("never sends a row it couldn't claim — the acceptance criterion: duplicate processing doesn't duplicate delivery", async () => {
-      prisma.notificationOutbox.findMany.mockResolvedValue([pendingRow]);
+      prisma.notificationOutbox.findMany.mockResolvedValue([smsPendingRow]);
       // Simulates another concurrent processPending() call having already claimed it.
       prisma.notificationOutbox.updateMany.mockResolvedValue({ count: 0 });
 
       await service.processPending();
 
-      expect(provider.send).not.toHaveBeenCalled();
+      expect(smsProvider.send).not.toHaveBeenCalled();
     });
 
     it("reverts to PENDING if the provider throws, so a later pass can retry", async () => {
-      prisma.notificationOutbox.findMany.mockResolvedValue([pendingRow]);
+      prisma.notificationOutbox.findMany.mockResolvedValue([smsPendingRow]);
       prisma.notificationOutbox.updateMany.mockResolvedValue({ count: 1 });
-      provider.send.mockRejectedValue(new Error("provider down"));
+      smsProvider.send.mockRejectedValue(new Error("provider down"));
 
       await expect(service.processPending()).rejects.toThrow("provider down");
 
@@ -107,7 +134,8 @@ describe("NotificationsService", () => {
     it("does nothing when there's nothing pending", async () => {
       prisma.notificationOutbox.findMany.mockResolvedValue([]);
       await service.processPending();
-      expect(provider.send).not.toHaveBeenCalled();
+      expect(smsProvider.send).not.toHaveBeenCalled();
+      expect(emailProvider.send).not.toHaveBeenCalled();
     });
   });
 });

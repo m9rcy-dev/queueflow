@@ -1,7 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import type { NotificationChannel, NotificationType, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { NotificationProvider } from "./notification-provider";
+import { EmailProvider } from "./email-provider";
+import { SmsProvider } from "./sms-provider";
+import { buildEmailSubject } from "./notification-copy";
 
 export interface EnqueueNotificationParams {
   tenantId: string;
@@ -26,7 +28,8 @@ const PROCESS_BATCH_LIMIT = 50;
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly provider: NotificationProvider,
+    private readonly emailProvider: EmailProvider,
+    private readonly smsProvider: SmsProvider,
   ) {}
 
   /** Must be called with the same `tx` the triggering mutation is using (G-31). */
@@ -71,11 +74,15 @@ export class NotificationsService {
       }
 
       try {
-        await this.provider.send({
-          channel: row.channel,
-          recipient: row.recipient,
-          body: row.body,
-        });
+        if (row.channel === "EMAIL") {
+          await this.emailProvider.send({
+            to: row.recipient,
+            subject: buildEmailSubject(row.type),
+            body: row.body,
+          });
+        } else {
+          await this.smsProvider.send({ to: row.recipient, body: row.body });
+        }
       } catch (err) {
         await this.prisma.notificationOutbox.update({
           where: { id: row.id },

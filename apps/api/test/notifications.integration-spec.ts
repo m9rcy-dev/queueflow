@@ -6,8 +6,10 @@ import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
-import { NotificationProvider } from "../src/notifications/notification-provider";
-import type { MockNotificationProvider } from "../src/notifications/mock-notification.provider";
+import { EmailProvider } from "../src/notifications/email-provider";
+import type { MockEmailProvider } from "../src/notifications/mock-email.provider";
+import { SmsProvider } from "../src/notifications/sms-provider";
+import type { MockSmsProvider } from "../src/notifications/mock-sms.provider";
 import { NotificationsService } from "../src/notifications/notifications.service";
 
 /**
@@ -17,6 +19,11 @@ import { NotificationsService } from "../src/notifications/notifications.service
  * up." This also completes the plan's original first vertical slice
  * (§98/C-03): scan → join → position updates → staff calls → customer
  * notified (mock) → complete.
+ *
+ * Every join-flow customer here only ever has a phone (SMS channel by
+ * construction, G-32) — the EMAIL-channel routing itself is proven
+ * separately below by setting a customer's email directly in the DB, the
+ * same way Phase 9's customer accounts eventually will.
  */
 describe("Notification infrastructure (integration)", () => {
   jest.setTimeout(120_000);
@@ -24,7 +31,8 @@ describe("Notification infrastructure (integration)", () => {
   let container: StartedPostgreSqlContainer;
   let app: INestApplication;
   let prisma: PrismaClient;
-  let provider: MockNotificationProvider;
+  let smsProvider: MockSmsProvider;
+  let emailProvider: MockEmailProvider;
   let notifications: NotificationsService;
 
   beforeAll(async () => {
@@ -44,7 +52,8 @@ describe("Notification infrastructure (integration)", () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     await app.init();
-    provider = moduleRef.get(NotificationProvider) as MockNotificationProvider;
+    smsProvider = moduleRef.get(SmsProvider) as MockSmsProvider;
+    emailProvider = moduleRef.get(EmailProvider) as MockEmailProvider;
     notifications = moduleRef.get(NotificationsService);
   });
 
@@ -123,7 +132,7 @@ describe("Notification infrastructure (integration)", () => {
   }
 
   it("the plan's original first vertical slice: join -> position updates -> called -> complete, exactly one CALLED notification", async () => {
-    provider.sent.length = 0;
+    smsProvider.sent.length = 0;
     const owner = await signUpAndVerify("notif-owner-a@example.com", "Slice Co", "Owner A");
     const { queueId, serviceId } = await setUpQueue(owner.accessToken);
 
@@ -140,8 +149,8 @@ describe("Notification infrastructure (integration)", () => {
     // Filtered on the CALLED message specifically — a lone joiner also
     // gets an immediate NEARLY_NEXT under the default thresholds (0 people
     // ahead), which is correct and not what this assertion is about.
-    const calledMessages = provider.sent.filter(
-      (s) => s.recipient === "+64211111111" && s.body.includes("your turn"),
+    const calledMessages = smsProvider.sent.filter(
+      (s) => s.to === "+64211111111" && s.body.includes("your turn"),
     );
     expect(calledMessages).toHaveLength(1);
     expect(calledMessages[0].body).toContain(String(entry.body.ticketNumber));
@@ -162,7 +171,7 @@ describe("Notification infrastructure (integration)", () => {
   });
 
   it("G-31 threshold ordering + suppression: nearly-next suppresses a not-yet-fired approaching, both fire only once", async () => {
-    provider.sent.length = 0;
+    smsProvider.sent.length = 0;
     const owner = await signUpAndVerify("notif-owner-b@example.com", "Threshold Co", "Owner B");
     const { queueId, serviceId } = await setUpQueue(owner.accessToken, {
       approaching: 2,
@@ -173,25 +182,25 @@ describe("Notification infrastructure (integration)", () => {
     const first = await join(queueId, serviceId, "Alice", "0211111111").expect(201);
     await new Promise((resolve) => setTimeout(resolve, 200)); // let the fire-and-forget pass run
 
-    const messagesToAlice = provider.sent.filter((s) => s.recipient === "+64211111111");
+    const messagesToAlice = smsProvider.sent.filter((s) => s.to === "+64211111111");
     expect(messagesToAlice).toHaveLength(1);
     expect(messagesToAlice[0].body).toContain("almost up");
 
     const aliceRow = await prisma.queueEntry.findUniqueOrThrow({ where: { id: first.body.id } });
     expect(aliceRow.nearlyNextNotifiedAt).not.toBeNull();
-    // Suppressed, not fired: stamped as sent without ever appearing in provider.sent.
+    // Suppressed, not fired: stamped as sent without ever appearing in smsProvider.sent.
     expect(aliceRow.approachingNotifiedAt).not.toBeNull();
 
     // Re-evaluating again (a second join, which re-scans every WAITING
     // entry) must not re-fire Alice's already-sent notification.
     await join(queueId, serviceId, "Bob", "0212222222").expect(201);
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const messagesToAliceAfter = provider.sent.filter((s) => s.recipient === "+64211111111");
+    const messagesToAliceAfter = smsProvider.sent.filter((s) => s.to === "+64211111111");
     expect(messagesToAliceAfter).toHaveLength(1); // unchanged
   });
 
   it("G-31: calling an entry promotes whoever's now closer to the front, cascading a fresh threshold check", async () => {
-    provider.sent.length = 0;
+    smsProvider.sent.length = 0;
     const owner = await signUpAndVerify("notif-owner-c@example.com", "Cascade Co", "Owner C");
     const { queueId, serviceId } = await setUpQueue(owner.accessToken, {
       approaching: 2,
@@ -203,7 +212,7 @@ describe("Notification infrastructure (integration)", () => {
     const cara = await join(queueId, serviceId, "Cara", "0213333333").expect(201); // 2 ahead -> APPROACHING only
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(provider.sent.filter((s) => s.recipient === "+64213333333")).toHaveLength(1);
+    expect(smsProvider.sent.filter((s) => s.to === "+64213333333")).toHaveLength(1);
 
     // Calling Alice shifts Bob to 0 ahead (already NEARLY_NEXT, no change)
     // and Cara to 1 ahead — newly within nearlyNext, should now ALSO fire.
@@ -213,7 +222,7 @@ describe("Notification infrastructure (integration)", () => {
       .expect(201);
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const caraMessages = provider.sent.filter((s) => s.recipient === "+64213333333");
+    const caraMessages = smsProvider.sent.filter((s) => s.to === "+64213333333");
     expect(caraMessages).toHaveLength(2);
     expect(caraMessages[1].body).toContain("almost up");
 
@@ -221,12 +230,12 @@ describe("Notification infrastructure (integration)", () => {
     expect(caraRow.nearlyNextNotifiedAt).not.toBeNull();
     // Bob untouched — he was already fully notified before the call.
     const bobRow = await prisma.queueEntry.findUniqueOrThrow({ where: { id: bob.body.id } });
-    expect(provider.sent.filter((s) => s.recipient === "+64212222222")).toHaveLength(1);
+    expect(smsProvider.sent.filter((s) => s.to === "+64212222222")).toHaveLength(1);
     expect(bobRow.nearlyNextNotifiedAt).not.toBeNull();
   });
 
   it("recall always enqueues a fresh RECALLED notification, even after CALLED already fired", async () => {
-    provider.sent.length = 0;
+    smsProvider.sent.length = 0;
     const owner = await signUpAndVerify("notif-owner-d@example.com", "Recall Co", "Owner D");
     const { queueId, serviceId } = await setUpQueue(owner.accessToken);
     const entry = await join(queueId, serviceId, "Alice", "0211111111").expect(201);
@@ -245,7 +254,7 @@ describe("Notification infrastructure (integration)", () => {
       .expect(201);
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const messages = provider.sent.filter((s) => s.recipient === "+64211111111");
+    const messages = smsProvider.sent.filter((s) => s.to === "+64211111111");
     const recalledCount = messages.filter((m) => m.body.includes("reminder")).length;
     expect(recalledCount).toBe(2); // one per recall call, not deduplicated like CALLED is
   });
@@ -260,14 +269,14 @@ describe("Notification infrastructure (integration)", () => {
       .set("Authorization", `Bearer ${owner.accessToken}`)
       .expect(201);
 
-    provider.sent.length = 0;
+    smsProvider.sent.length = 0;
     // Two concurrent drains racing on whatever's left PENDING (there
     // shouldn't be anything left, since the mutation's own fire-and-forget
     // pass already drained it — this proves that even if it somehow
     // wasn't, a second pass can never double-send).
     await Promise.all([notifications.processPending(), notifications.processPending()]);
 
-    const sentToAlice = provider.sent.filter((s) => s.recipient === "+64211111111");
+    const sentToAlice = smsProvider.sent.filter((s) => s.to === "+64211111111");
     expect(sentToAlice.length).toBeLessThanOrEqual(1);
 
     const outboxRows = await prisma.notificationOutbox.findMany({
@@ -281,8 +290,8 @@ describe("Notification infrastructure (integration)", () => {
     const owner = await signUpAndVerify("notif-owner-f@example.com", "Resilient Co", "Owner F");
     const { queueId, serviceId } = await setUpQueue(owner.accessToken);
 
-    const originalSend = provider.send.bind(provider);
-    provider.send = async () => {
+    const originalSend = smsProvider.send.bind(smsProvider);
+    smsProvider.send = async () => {
       throw new Error("simulated provider outage");
     };
     try {
@@ -299,7 +308,43 @@ describe("Notification infrastructure (integration)", () => {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((row) => row.status === "PENDING")).toBe(true);
     } finally {
-      provider.send = originalSend;
+      smsProvider.send = originalSend;
     }
+  });
+
+  it("EMAIL-channel routing: a customer with an email on file gets notified via EmailProvider, not SmsProvider", async () => {
+    const owner = await signUpAndVerify("notif-owner-g@example.com", "Email Co", "Owner G");
+    const { queueId, serviceId } = await setUpQueue(owner.accessToken);
+    // At join time this customer has no email yet, so the immediate
+    // NEARLY_NEXT (lone joiner, 0 ahead, default thresholds) correctly
+    // goes via SMS — irrelevant to this test, cleared below.
+    const entry = await join(queueId, serviceId, "Alice", "0211119999").expect(201);
+
+    // Not yet possible via the join flow itself (Phase 9's job) — set
+    // directly, the same way a real signed-up customer record eventually
+    // will have an email captured at account creation.
+    await prisma.customer.updateMany({
+      where: { phoneE164: "+64211119999" },
+      data: { email: "alice@example.com" },
+    });
+    smsProvider.sent.length = 0;
+    emailProvider.sent.length = 0;
+
+    await request(app.getHttpServer())
+      .post(`/tenants/me/queues/${queueId}/call-next`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const emailMessages = emailProvider.sent.filter((s) => s.to === "alice@example.com");
+    expect(emailMessages).toHaveLength(1);
+    expect(emailMessages[0].subject).toBe("It's your turn!");
+    expect(smsProvider.sent.filter((s) => s.to === "+64211119999")).toHaveLength(0);
+
+    const outboxRow = await prisma.notificationOutbox.findFirstOrThrow({
+      where: { queueEntryId: entry.body.id, type: "CALLED" },
+    });
+    expect(outboxRow.channel).toBe("EMAIL");
+    expect(outboxRow.status).toBe("SENT");
   });
 });

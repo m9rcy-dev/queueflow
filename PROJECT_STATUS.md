@@ -1,7 +1,7 @@
 # Project Status
 
 Last Updated: 2026-09-29
-Current Phase: Phase 8 — Real Notifications (Pingram) (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–7 done)
+Current Phase: Phase 8 — Real Notifications (Pingram) — **in progress, blocked on a real Pingram API key** (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–7 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -77,6 +77,17 @@ Current Task: See Next Task below
 - Manual verification: a real queue driven via curl end to end with tight thresholds — join 3 customers (NEARLY_NEXT/NEARLY_NEXT/APPROACHING fired correctly by position), call-next (CALLED fires, and the newly-promoted 3rd customer correctly gets NEARLY_NEXT in the same pass), recall (RECALLED fires) — cross-checked against both the mock provider's log output and the `notification_outbox`/`queue_entries` tables directly via `psql` (exact 1:1 row-to-log-line match, every row `SENT`, every suppression flag correctly stamped).
 - **This completes the plan's original first vertical slice** (§98/C-03): scan → join → position updates → staff calls → customer notified (mock) → complete — proven end to end by the integration test of the same name.
 
+### Phase 8 — Real Notifications (Pingram) — 🔧 in progress
+
+- **User decision (2026-09-29)**: asked how to handle the real-provider account this phase needs — chose "I'll set up Pingram" (build the real integration now; they provide the live `PINGRAM_API_KEY` when ready for a live-send verification). Live delivery is therefore not yet verified — everything else is built and tested.
+- **Mid-phase user request: split Email and SMS into independently swappable providers** (rather than one `NotificationProvider` branching on channel) — implemented as the actual architecture, not just Pingram-specific. See ADR-008's updated Decision section for the full rationale.
+- **`EmailProvider`/`SmsProvider`** (`apps/api/src/notifications`): two separate abstract-class DI tokens, each with its own config switch (`EMAIL_PROVIDER`/`SMS_PROVIDER`, in `apps/api/.env`). `notifications.module.ts`'s factory providers pick the implementation per switch and **throw a clear error at application startup** for any unrecognized value — a misconfiguration in production can never be mistaken for "it's actually sending." `MockEmailProvider`/`MockSmsProvider` replace Phase 7's single `MockNotificationProvider`.
+- **`PingramEmailProvider`** — the real implementation: `POST https://api.pingram.io/email`, `Authorization: Bearer <PINGRAM_API_KEY>`, plain-text `body` wrapped as minimal escaped HTML for Pingram's `html` field, subject derived from `NotificationType` (`buildEmailSubject`). Never logs `PINGRAM_API_KEY` in any path, success or failure — only what Pingram's own response reports.
+- **`SmsProvider` has no real implementation yet** — only `MockSmsProvider` exists; picking anything else for `SMS_PROVIDER` throws at boot (matches the roadmap's explicit "SMS as a later adapter," G-29). Since every current queue notification is SMS-channel by construction (anonymous walk-ins only ever supply a phone, no email capture exists before Phase 9), turning on `EMAIL_PROVIDER=pingram` today wires up real email sending with no live queue traffic to actually exercise it yet — proven instead by a dedicated integration test that sets a customer's email directly in the DB (the same way Phase 9's real accounts eventually will) and confirms the CALLED notification routes to `EmailProvider`, not `SmsProvider`.
+- Tests: 4 new unit (`mock-email.provider.spec.ts`, `mock-sms.provider.spec.ts`, `pingram-email.provider.spec.ts` — mocks `fetch`, asserts the Bearer header, HTML-escaping, and that a failure never logs the API key) + `notifications.service.spec.ts` updated for the two-provider split → 132 total unit; 1 new integration test (EMAIL-channel routing via a real Postgres customer record) → 41 total integration. `pnpm quality` green end to end.
+- Manual verification: real dev-server boot with `SMS_PROVIDER=bogus` fails loudly at startup with the exact intended error (proving no silent fallback); `EMAIL_PROVIDER=pingram` with no key boots cleanly (the check is deferred to send-time, not startup); a real join+call-next cycle against the mock providers confirmed `MockSmsProvider` (the renamed class) still fires identically to Phase 7's behavior.
+- **Not yet done**: an actual live email send through a real Pingram account — blocked on the user creating that account and setting `PINGRAM_API_KEY` in `apps/api/.env`. Once that's in place, the remaining acceptance check is a single real `EmailProvider.send()` call away.
+
 ## Decisions Made
 
 See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
@@ -84,7 +95,8 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 ## Known Issues
 
 - **G-40 partial**: Cloudflare Turnstile (the specific bot-check the plan calls for on the join POST) is not integrated — only IP-based rate limiting (`@nestjs/throttler`, 5/min on join) ships. Adding Turnstile requires an external Cloudflare account/site key.
-- Real SMS/email provider (Pingram) not yet integrated — `MailService` is `ConsoleMailService`. Phase 8's job.
+- **Real Pingram email not yet live-verified** — `PingramEmailProvider` is fully built and tested (mocked `fetch`), but nobody has set a real `PINGRAM_API_KEY` yet. `EMAIL_PROVIDER` stays `mock` until that exists. Auth OTP/invite emails are unrelated — `MailService` is still `ConsoleMailService` (Phase 1, never in scope for Phase 8's `NotificationProvider`-based queue notifications).
+- Real SMS provider not integrated at all (not just unverified) — only `MockSmsProvider` exists; `SMS_PROVIDER=pingram` (or anything but `mock`) throws at boot by design. Deliberately deferred (G-29) until real per-tenant cost caps exist.
 - Network-level rate limiting (G-38, Redis/Upstash-backed, for horizontal-scale/multi-instance deployments) not yet wired — deferred to Phase 12 as scoped. Current rate limiting is in-process only, correct for the current single-instance deployment (D-06).
 - No background job/scheduler exists — business-hours-based auto-closing (as a fallback to staff-controlled closing, G-16) and auto-no-show-after-grace-period (G-15) are both designed but not implemented; staff must act manually for now.
 - SSE realtime is in-process (`EventEmitter`) only — correct for single-instance (D-06), but will need a Redis pub/sub swap before horizontal scaling or the future high-volume "flash crowd" workstream (see `docs/roadmap.md`'s future-enhancements section).
@@ -97,10 +109,13 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-**Phase 8 — Real Notifications (Pingram)**, per `docs/roadmap.md`:
+**Finish Phase 8 — Real Notifications (Pingram)**, per `docs/roadmap.md`. The code is done; what's left needs the user:
 
-1. Wire a real provider behind the existing `NotificationProvider` interface (ADR-008) — email first (free, the default channel), SMS as a later adapter once real per-tenant cost caps exist (G-29). This is a new class implementing the same interface `MockNotificationProvider` already does; nothing in `NotificationsService` or `QueueEntriesService` should need to change.
-2. **Verify actual NZ-destination SMS pricing on Pingram's pricing page before enabling SMS for real** — ADR-008 flags this as unconfirmed (the advertised free tier is described as "100 SMS to the US").
-3. Consent text + versioning (G-48) — structural requirement, decided in planning; real legal copy needs to exist before any real business's customer data flows through this.
+1. **Blocked on the user**: create a Pingram account, get an API key, and set `PINGRAM_API_KEY` (and confirm `PINGRAM_FROM_EMAIL`, a verified sending domain) in `apps/api/.env`. Nothing in this codebase can do this step.
+2. Once that key exists: set `EMAIL_PROVIDER=pingram`, boot the real dev server, and drive a real `EmailProvider.send()` (e.g., via a customer record with a real email set directly, same as the integration test does) to confirm an actual email is delivered — the last unverified piece of Phase 8's acceptance criteria.
+3. **Verify actual NZ-destination SMS pricing on Pingram's pricing page before ever building a real `SmsProvider`** — ADR-008 flags this as unconfirmed (the advertised free tier is described as "100 SMS to the US"). Not blocking Phase 8 itself (SMS is explicitly a later adapter), but worth doing before that later work starts.
+4. Consent text + versioning (G-48) — structural requirement, decided in planning; real legal copy needs to exist before any real business's customer data flows through this. Not yet started.
 
-Acceptance (per roadmap): a real email is delivered through the configured provider; provider failure doesn't break queue operations; secrets aren't logged.
+Once the live-send is verified, mark Phase 8 done and move to **Phase 9 — Customer Accounts & Portal**.
+
+Acceptance (per roadmap): a real email is delivered through the configured provider; provider failure doesn't break queue operations; secrets aren't logged. The latter two are already proven (unit + integration tests); only the first needs the user's credential.
