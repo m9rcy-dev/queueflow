@@ -249,13 +249,66 @@ manual curl- and real-browser-driven run of the whole flow end to end. 162 unit 
 
 ### Phase 10 — Kiosk Hardware & Guest Cards _(§4.5 Phase B)_
 
+**Status: ✅ Done** (2026-09-30)
+
 The physical counter scanner (D-10), numbered guest-card pool (D-14: `guest_1`…`guest_N`, zero data,
 idempotent scan, auto-release on terminal state), self-serve instant join for both guest cards and
 `CUSTOMER_IDENTITY` codes (D-11), staff-assisted cancel for guest-card users (no self-service path
 exists for them by design).
 
+New `GUEST_CARD` code context — a location-owned, numbered, anonymous card (`Code` gained
+`locationId`/`guestNumber`/`currentEntryId`, the last a nullable-unique FK to `QueueEntry` tracking
+which entry currently "holds" the card; null means free). `QueueEntriesService.joinByScan(tenantId,
+queueId, publicCode)` is the scanner's one call — staff-authenticated (D-10's scanner is business
+hardware, not a customer's own device), branches on whichever code kind was scanned:
+
+- **Guest card**: `customerId` stays null the whole way through (zero data, D-14). The card's own
+  `currentEntryId` linkage _is_ the dedup guarantee (G-54) — re-scanning an already-linked card
+  returns the existing entry rather than minting a duplicate, and a `FOR UPDATE` row lock on the code
+  closes the race between two near-simultaneous scans of the same physical card.
+- **Customer identity**: a real `customerId` exists, so the ordinary per-location active-ticket cap
+  (G-34) still applies — a scan doesn't bypass it. Idempotent the same way while already active in
+  that queue.
+- Anything else (QUEUE/DISPLAY/GENERAL) gets the same uniform 404 as an unrecognized code.
+
+Scan-to-join deliberately skips the service-picker step entirely (D-11's "no confirmation" requirement)
+— it only works when the queue has exactly one active+queueEnabled service to default to; a
+multi-service queue needs the QR-poster or staff walk-in form instead (both do offer a picker). A
+released card is picked back up automatically: any transition reaching COMPLETED/CANCELLED/NO_SHOW
+clears `currentEntryId` (SKIPPED is excluded — the guest hasn't left, `requeue` brings the entry
+straight back). Staff-assisted cancel for guest-card users needed **zero new code** — the existing
+staff dashboard's cancel button already works on any entry regardless of `customerId` being null,
+confirmed live.
+
+Pool admin: `GuestCardsService.resize()` reconciles a location's pool to an exact target size —
+mints new cards (continuing from the highest `guestNumber` _ever_ assigned at that location, active
+or not — a real bug caught during manual verification: `@@unique([locationId, guestNumber])` applies
+to deactivated rows too, so naively continuing from the _active_ count collided after a
+shrink-then-regrow cycle) or deactivates the highest-numbered _free_ ones, refusing to shrink past a
+card that's currently out with a guest.
+
+**Real bug found and fixed during manual verification**: shrinking a pool to 0 and then growing it
+again threw a Prisma unique-constraint violation on `(locationId, guestNumber)` — the resize logic
+was counting only _active_ cards to pick the next number, but the unique index also covers the
+deactivated rows left behind by the shrink. Fixed by sourcing the next number from `MAX(guestNumber)`
+across all rows for that location (active or not) instead of `COUNT(active rows)`; a dedicated
+regression test (unit + integration) now covers exactly this shrink-to-zero-then-regrow sequence.
+
+Frontend: `/admin/queues/[queueId]/scan` — a focused text input a USB/Bluetooth barcode scanner can
+type straight into (Enter submits, same as a person typing it; no special hardware integration
+needed), showing a confirmation card after each scan. The queue dashboard gained a "Guest cards" panel
+(pool size control, per-card in-use indicator) and a "Scan" button alongside Call Next/Add Walk-in.
+
 **Acceptance:** a physical guest card and a customer's personal code both self-serve-join correctly at
-the counter scanner; re-scanning an active card/code never duplicates.
+the counter scanner; re-scanning an active card/code never duplicates. Verified via a dedicated
+integration suite (10 tests: pool grow/shrink/shrink-refused-while-in-use, the shrink-then-regrow
+numbering regression, role-gating, guest-card instant join + idempotent re-scan + auto-release +
+post-release re-scan mints a fresh ticket, staff-assisted cancel releasing the card, cross-location
+rejection, single-active-service enforcement, customer-identity instant join + idempotent re-scan,
+non-GUEST_CARD/CUSTOMER_IDENTITY codes rejected, cross-tenant rejection) plus targeted unit tests for
+`GuestCardsService`/the widened `QueueEntriesService`/`CodesService`, a manual curl-driven run of the
+whole flow end to end (including the bug found above), and a real-browser (Playwright) run of the
+scanner page and guest-card panel. 185 unit + 63 integration tests, `pnpm quality` green.
 
 ### Phase 11 — Business Administration
 

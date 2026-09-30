@@ -3,9 +3,11 @@ import {
   cancelEntrySchema,
   joinQueueSchema,
   listQueueEntriesQuerySchema,
+  scanCodeSchema,
   type CancelEntryInput,
   type JoinQueueInput,
   type ListQueueEntriesQuery,
+  type ScanCodeInput,
 } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -44,6 +46,16 @@ export class QueueEntriesController {
     @Body(new ZodValidationPipe(joinQueueSchema)) body: JoinQueueInput,
   ) {
     return this.queueEntriesService.addWalkIn(user.tenantId, queueId, body);
+  }
+
+  /** The physical counter scanner's one call (Phase 10, D-10/D-11) — reads whatever code (guest card or customer identity) it just scanned. */
+  @Post("queues/:queueId/scan")
+  scan(
+    @CurrentUser() user: RequestUser,
+    @Param("queueId") queueId: string,
+    @Body(new ZodValidationPipe(scanCodeSchema)) body: ScanCodeInput,
+  ) {
+    return this.queueEntriesService.joinByScan(user.tenantId, queueId, body.code);
   }
 
   @Get("queue-entries/:id")

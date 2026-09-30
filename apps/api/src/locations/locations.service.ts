@@ -88,7 +88,8 @@ export class LocationsService {
     return this.getBusinessHours(tenantId, locationId);
   }
 
-  private async findOwnedLocation(tenantId: string, locationId: string) {
+  /** Public (like QueuesService.findOwnedQueue) so other services — GuestCardsService (Phase 10) — can ownership-check a locationId without duplicating this query. */
+  async findOwnedLocation(tenantId: string, locationId: string) {
     const location = await this.prisma.location.findFirst({
       where: { id: locationId, tenantId },
     });

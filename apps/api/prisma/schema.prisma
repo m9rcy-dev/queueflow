@@ -217,6 +217,8 @@ model Location {
   businessHours BusinessHours[]
   services      Service[]
   queues        Queue[]
+  // GUEST_CARD codes only (Phase 10, D-14) — the location's physical card pool.
+  codes         Code[]
 
   @@index([tenantId])
   @@map("locations")
@@ -494,6 +496,10 @@ model QueueEntry {
   customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
   assignedStaff TenantUser?          @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
   notifications NotificationOutbox[]
+  // The GUEST_CARD code currently occupied by this entry, if any (Phase 10,
+  // D-14) — the FK lives on Code.currentEntryId; this is just the reverse
+  // side, informational only (nothing queries through it today).
+  guestCard     Code?                @relation("GuestCardCurrentEntry")
 
   @@unique([tenantId, idempotencyKey])
   @@unique([queueId, serviceDate, ticketNumber])
@@ -582,28 +588,52 @@ enum CodeContextType {
   // code, persistent across visits, distinct from queue_entry.publicToken
   // (which is per-ticket and secret, G-45). Consumption via a physical
   // scanner for instant-join is Phase 10's job (D-11) — Phase 9 only
-  // mints, displays, and regenerates it.
+  // minted, displayed, and regenerated it; Phase 10 is what actually
+  // consumes it (see CUSTOMER_IDENTITY scan handling in
+  // QueueEntriesService.joinByScan).
   CUSTOMER_IDENTITY
+  // Phase 10 (Kiosk Hardware, D-14) — a location-owned, numbered, anonymous
+  // card from a fixed pool (guestNumber 1..N, admin-sized). Zero personal
+  // data by design — no customer/queue binding at mint time, unlike every
+  // other context type. `currentEntryId` tracks which QueueEntry currently
+  // "holds" this physical card (null = free/available in the rack);
+  // scanning an already-held card is idempotent (returns the existing
+  // entry, G-54/D-11) rather than minting a second one. Released back to
+  // the pool automatically when that entry reaches a terminal state.
+  GUEST_CARD
 }
 
 model Code {
-  id          String          @id @default(uuid())
-  tenantId    String
+  id             String          @id @default(uuid())
+  tenantId       String
   // Short, human-typable, printed — NOT a secret (G-39 distinguishes this
   // from queue_entry.publicToken, which is long and genuinely secret).
-  publicCode  String          @unique
-  contextType CodeContextType
-  queueId     String?
-  customerId  String?
-  active      Boolean         @default(true)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  publicCode     String          @unique
+  contextType    CodeContextType
+  queueId        String?
+  customerId     String?
+  // GUEST_CARD only, below this line.
+  locationId     String?
+  // The printed "guest_N" label (D-14) — distinct from publicCode (what's
+  // actually scanned); staff and the physical card both show this number.
+  guestNumber    Int?
+  // Which QueueEntry currently "holds" this card, if any (null = free).
+  // Claimed/released under a row lock in QueueEntriesService.joinByScan /
+  // .transition() — see those for the concurrency reasoning.
+  currentEntryId String?         @unique
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  queue    Queue?    @relation(fields: [queueId], references: [id], onDelete: Cascade)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queue        Queue?      @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  customer     Customer?   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  location     Location?   @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  currentEntry QueueEntry? @relation("GuestCardCurrentEntry", fields: [currentEntryId], references: [id], onDelete: SetNull)
 
+  @@unique([locationId, guestNumber])
   @@index([tenantId])
   @@index([customerId])
+  @@index([locationId])
   @@map("codes")
 }

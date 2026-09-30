@@ -10,6 +10,7 @@ import { CodesModule } from "./codes/codes.module";
 import { CustomerAuthModule } from "./customer-auth/customer-auth.module";
 import { CustomersModule } from "./customers/customers.module";
 import { DisplaysModule } from "./displays/displays.module";
+import { GuestCardsModule } from "./guest-cards/guest-cards.module";
 import { HealthModule } from "./health/health.module";
 import { LocationsModule } from "./locations/locations.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -41,6 +42,7 @@ import { TenantsModule } from "./tenants/tenants.module";
     DisplaysModule,
     CustomersModule,
     CustomerAuthModule,
+    GuestCardsModule,
   ],
   providers: [
     // Every route is protected by default (AGENTS.md §2) — @Public() opts

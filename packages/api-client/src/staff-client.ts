@@ -1,6 +1,7 @@
 import type {
   AuthSuccessResponse,
   DeviceContextResponse,
+  GuestCardSummary,
   LoginVerifyResponse,
   QueueSummary,
   StaffQueueEntrySummary,
@@ -42,7 +43,7 @@ export interface StaffApiClientConfig {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
 }
 
@@ -172,6 +173,10 @@ export class StaffApiClient {
     return this.request<QueueSummary[]>("/tenants/me/queues");
   }
 
+  getQueue(queueId: string): Promise<QueueSummary> {
+    return this.request<QueueSummary>(`/tenants/me/queues/${queueId}`);
+  }
+
   listEntries(queueId: string, status?: string): Promise<StaffQueueEntrySummary[]> {
     const query = status ? `?status=${encodeURIComponent(status)}` : "";
     return this.request<StaffQueueEntrySummary[]>(`/tenants/me/queues/${queueId}/entries${query}`);
@@ -185,6 +190,22 @@ export class StaffApiClient {
 
   addWalkIn(queueId: string, input: JoinQueueInput): Promise<StaffQueueEntrySummary> {
     return this.request(`/tenants/me/queues/${queueId}/entries`, { method: "POST", body: input });
+  }
+
+  /** The physical counter scanner's one call (Phase 10, D-10/D-11) — whatever a guest card or a customer's own identity code scanned to. */
+  scan(queueId: string, code: string): Promise<StaffQueueEntrySummary> {
+    return this.request(`/tenants/me/queues/${queueId}/scan`, { method: "POST", body: { code } });
+  }
+
+  listGuestCards(locationId: string): Promise<GuestCardSummary[]> {
+    return this.request(`/tenants/me/locations/${locationId}/guest-cards`);
+  }
+
+  resizeGuestCardPool(locationId: string, poolSize: number): Promise<GuestCardSummary[]> {
+    return this.request(`/tenants/me/locations/${locationId}/guest-cards`, {
+      method: "PUT",
+      body: { poolSize },
+    });
   }
 
   callNext(queueId: string): Promise<StaffQueueEntrySummary> {

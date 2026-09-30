@@ -50,4 +50,6 @@ export interface StaffQueueEntrySummary extends QueueEntrySummary {
   customerPhone: string;
   assignedStaffId: string | null;
   assignedStaffName: string | null;
+  /** Set only for a Phase 10 guest-card entry (customerName falls back to "Guest {N}" in that case too) — lets staff call out a number instead of a name. */
+  guestCardNumber: number | null;
 }

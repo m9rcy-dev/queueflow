@@ -1,7 +1,7 @@
 # Project Status
 
-Last Updated: 2026-09-29
-Current Phase: Phase 10 — Kiosk Hardware & Guest Cards (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–9 done)
+Last Updated: 2026-09-30
+Current Phase: Phase 11 — Business Administration (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–10 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -99,6 +99,17 @@ Current Task: See Next Task below
 - Tests: 8 new `customers.service.spec.ts` + 10 new `customer-auth.service.spec.ts` + 8 new `codes.service.spec.ts` (GENERAL/CUSTOMER_IDENTITY) + 1 new `token.service.spec.ts` → 162 total unit; new `customer-auth.integration-spec.ts` (12 tests: GENERAL mint/resolve, self-service signup + OTP login, identity-code regeneration, staff in-person signup, anonymous-join account linking, email-conflict rejection, wrong-OTP rejection, refresh/logout rotation, cross-token isolation, CUSTOMER_IDENTITY's public non-resolvability) → 53 total integration. `pnpm quality` green end to end.
 - Manual verification: full curl-driven run of every endpoint (signup, OTP login, portal, regenerate, staff creation, anonymous-join linking, cross-token rejection) against a real Postgres, plus a real-browser (Playwright) run of the `/c/[code]` → OTP → `/c/portal` → regenerate → logout → re-login flow.
 
+### Phase 10 — Kiosk Hardware & Guest Cards
+
+- **New `GUEST_CARD` code context** (D-14) — location-owned, numbered, anonymous. `Code` gained `locationId`/`guestNumber`/`currentEntryId` (the last a nullable-unique FK to `QueueEntry` — null means free, non-null means "this card currently holds that entry"). `@@unique([locationId, guestNumber])` for the printed label.
+- **`QueueEntriesService.joinByScan()`** — the counter scanner's one call, staff-authenticated (the scanner is business hardware, D-10). Branches on GUEST_CARD (customerId stays null the whole way — zero data by design) vs CUSTOMER_IDENTITY (a real customerId, so G-34's per-location cap still applies) vs anything else (uniform 404). Both kinds are idempotent on re-scan (G-54/D-11): a guest card's own `currentEntryId` linkage _is_ the dedup guarantee, closed against a race via a `FOR UPDATE` row lock; a customer identity re-scan returns the existing active entry in that queue. Deliberately requires exactly one active service on the queue — scan-to-join skips the service-picker step entirely (D-11).
+- **Auto-release**: any transition reaching COMPLETED/CANCELLED/NO_SHOW clears a linked card's `currentEntryId` (SKIPPED excluded — `requeue` brings the entry straight back). Staff-assisted cancel for guest-card users needed **zero new code** — confirmed live that the existing dashboard cancel button already works on a null-customerId entry.
+- **`GuestCardsService.resize()`** — reconciles a location's pool to an exact target size (mint to grow, deactivate free cards to shrink, refuses to shrink past an in-use card).
+- **Real bug found and fixed during manual verification**: shrinking a pool to 0 then growing it again threw a Prisma unique-constraint violation on `(locationId, guestNumber)` — the resize logic picked the next number from the _active_ card count, but the unique index also covers rows deactivated by the shrink. Fixed by sourcing the next number from `MAX(guestNumber)` across all rows (active or not); a dedicated regression test (unit + integration) now covers exactly this sequence.
+- Frontend: `/admin/queues/[queueId]/scan` (a focused input a barcode scanner types into — Enter submits, no special hardware integration needed) and a "Guest cards" panel + "Scan" button on the queue dashboard.
+- Tests: new `guest-cards.service.spec.ts` (8) + `queue-entries.service.spec.ts` additions (joinByScan + guest-card release, 13 new) + `codes.service.spec.ts` additions (3 new) → 185 total unit; new `guest-cards.integration-spec.ts` (10 tests) → 63 total integration. `pnpm quality` green end to end.
+- Manual verification: full curl-driven run of the whole flow (pool resize incl. the shrink-then-regrow bug found live, guest-card scan + idempotent re-scan + auto-release + recycling, customer-identity scan, cross-location/single-service/cross-tenant rejections, staff-assisted cancel) against a real Postgres, plus a real-browser (Playwright) run of the scanner page and guest-card panel.
+
 ## Decisions Made
 
 See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
@@ -107,25 +118,25 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 - **G-40 partial**: Cloudflare Turnstile (the specific bot-check the plan calls for on the join POST) is not integrated — only IP-based rate limiting (`@nestjs/throttler`, 5/min on join) ships. Adding Turnstile requires an external Cloudflare account/site key.
 - Real SMS provider not integrated at all — only `MockSmsProvider` exists; `SMS_PROVIDER=pingram` (or anything but `mock`) throws at boot by design. Deliberately deferred (G-29) until real per-tenant cost caps exist and NZ SMS pricing is verified on Pingram's pricing page (their advertised free tier is described as "100 SMS to the US" — NZ isn't confirmed).
-- An anonymous walk-in join is still SMS-channel by construction (only a phone is captured) — `EmailProvider`/`PingramEmailProvider` are now reachable through real customer traffic (Phase 9's account emails, proven live) but a queue *notification* for an unlinked walk-in still has no email to send to unless that phone number already belongs to a signed-up account. Auth OTP/invite emails for staff are unrelated — `MailService` is still `ConsoleMailService` (Phase 1, never in scope for Phase 8/9's `EmailProvider`).
+- An anonymous walk-in join is still SMS-channel by construction (only a phone is captured) — `EmailProvider`/`PingramEmailProvider` are now reachable through real customer traffic (Phase 9's account emails, proven live) but a queue _notification_ for an unlinked walk-in still has no email to send to unless that phone number already belongs to a signed-up account. Auth OTP/invite emails for staff are unrelated — `MailService` is still `ConsoleMailService` (Phase 1, never in scope for Phase 8/9's `EmailProvider`).
 - Consent text + versioning (G-48) not yet implemented — structural requirement, decided in planning; real legal copy needs to exist before any real business's customer data flows through this.
 - Network-level rate limiting (G-38, Redis/Upstash-backed, for horizontal-scale/multi-instance deployments) not yet wired — deferred to Phase 12 as scoped. Current rate limiting is in-process only, correct for the current single-instance deployment (D-06).
 - No background job/scheduler exists — business-hours-based auto-closing (as a fallback to staff-controlled closing, G-16) and auto-no-show-after-grace-period (G-15) are both designed but not implemented; staff must act manually for now.
 - SSE realtime is in-process (`EventEmitter`) only — correct for single-instance (D-06), but will need a Redis pub/sub swap before horizontal scaling or the future high-volume "flash crowd" workstream (see `docs/roadmap.md`'s future-enhancements section).
 - Testcontainers' Ryuk reaper sidecar hangs in this sandboxed Docker dev environment; `apps/api`'s `test:integration` script sets `TESTCONTAINERS_RYUK_DISABLED=true` to work around it (see `test/jest-integration.config.js` for the full explanation). Not an application bug — purely an environment quirk of this Docker setup.
 - The staff dashboard polls every 3s rather than using SSE — deliberate for MVP simplicity (EventSource can't attach an Authorization header, and a query-string token is a security smell not worth taking on this phase); fine at current staff-tablet counts, worth revisiting if multi-tablet live sync becomes a real complaint.
-- No staff-facing UI yet for creating/managing locations, services, queues, or codes (including display codes) — Phase 5/6's work assumes these already exist (created via curl/API in this session's manual testing). A business-admin UI for this is not yet scoped into any phase; flag to the user if it's wanted before Phase 11 (Business Administration).
+- No staff-facing UI yet for creating/managing locations, services, queues, or most codes (QUEUE/DISPLAY/GENERAL) — Phase 5/6/9's work assumes these already exist (created via curl/API in this session's manual testing). The one exception is Phase 10's guest-card pool, which does have a dashboard panel. This is exactly Phase 11's (Business Administration) job.
 - No display-picker UI — a business owner points the TV's browser at the specific `/display/{code}` URL directly (bookmarked once). Fine for one screen per location (D-10); would need a picker if a business ever wants several distinct boards.
 - Notification processing is fire-and-forget in-process, not a real background worker/queue — correct for MVP scale (ADR-008 describes "a background worker sends it," which this satisfies in spirit: never blocks the request), but a genuinely down/slow provider only gets retried on the _next_ queue mutation to the same entry, not on a timer. Revisit once Phase 8's real provider makes actual failures a real possibility, not just a simulated test.
 - No staff-facing UI to configure `approachingThreshold`/`nearlyNextThreshold` per queue — set via `PATCH /tenants/me/queues/:id` today (already wired through), no dashboard control for it yet. Same "no business-admin UI" gap as other queue config (see above).
 
 ## Next Task
 
-**Phase 10 — Kiosk Hardware & Guest Cards** _(§4.5 Phase B)_, per `docs/roadmap.md`:
+**Phase 11 — Business Administration**, per `docs/roadmap.md`:
 
-1. The physical counter scanner (D-10) — the actual consumption endpoint for both a `CUSTOMER_IDENTITY` code (minted in Phase 9, no public resolver yet) and a guest card.
-2. Numbered guest-card pool (D-14: `guest_1`…`guest_N`, zero customer data attached, idempotent scan, auto-release back to the pool on the entry's terminal state).
-3. Self-serve instant join for both guest cards and `CUSTOMER_IDENTITY` codes (D-11) — scan and you're in the queue, no form.
-4. Staff-assisted cancel for guest-card users specifically — no self-service path exists for them by design (no account, no way to prove it's really them).
+1. QR/code management screens — staff-facing UI for creating/listing/deactivating QUEUE, DISPLAY, and GENERAL codes (all currently curl/API-only, see Known Issues).
+2. Service/staff/location management UI, and business hours — the same "curl-only today" gap for locations/services/queues.
+3. Notification settings, and the live "today" dashboard (queue length, average wait, served count — G-14's formulas; **not** the deferred historical-trend analytics).
+4. PWA manifest + service worker (ADR-010) — including Web Push as an SMS-cost offset for installed, signed-up customers.
 
-Acceptance (per roadmap): a physical guest card and a customer's personal code both self-serve-join correctly at the counter scanner; re-scanning an active card/code never duplicates.
+Acceptance (per roadmap): a business can configure the complete MVP without database access; the app installs as a PWA on a tablet or desktop.

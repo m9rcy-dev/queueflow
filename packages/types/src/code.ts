@@ -1,12 +1,12 @@
 /**
  * The minimal slice of the unified code model (§4.5/ADR-005) built across
- * Phases 4, 6, and 9 — QUEUE (customer join), DISPLAY (the TV board,
- * G-07), GENERAL (the tenant-only "sign up here" poster, D-10), and
+ * Phases 4, 6, 9, and 10 — QUEUE (customer join), DISPLAY (the TV board,
+ * G-07), GENERAL (the tenant-only "sign up here" poster, D-10),
  * CUSTOMER_IDENTITY (a customer's own persistent "loyalty card" code,
- * G-52). GUEST_CARD/APPOINTMENT_TICKET are Phases 10/C's job; do not add
- * them here early.
+ * G-52), and GUEST_CARD (a location's numbered, anonymous card pool,
+ * D-14). APPOINTMENT_TICKET is Phase C's job; do not add it here early.
  */
-export type CodeContextType = "QUEUE" | "DISPLAY" | "GENERAL" | "CUSTOMER_IDENTITY";
+export type CodeContextType = "QUEUE" | "DISPLAY" | "GENERAL" | "CUSTOMER_IDENTITY" | "GUEST_CARD";
 
 export interface CodeSummary {
   publicCode: string;
@@ -15,6 +15,21 @@ export interface CodeSummary {
   queueId: string | null;
   /** Only set for CUSTOMER_IDENTITY codes. */
   customerId: string | null;
+}
+
+/**
+ * A location's guest-card pool (Phase 10, D-14) — its own richer shape
+ * rather than reusing CodeSummary, since staff need to see the printed
+ * number and current occupancy, not just the raw code. Returned by
+ * GET/PUT `/tenants/me/locations/:locationId/guest-cards`.
+ */
+export interface GuestCardSummary {
+  id: string;
+  publicCode: string;
+  /** The printed "guest_N" label — what's written on the physical card, distinct from publicCode (what's actually scanned). */
+  guestNumber: number;
+  /** True while a QueueEntry currently holds this card — cleared automatically when that entry reaches a terminal state. */
+  inUse: boolean;
 }
 
 /** What a customer's phone sees immediately after scanning/opening a QUEUE code — deliberately minimal (plan §9's landing page). */
@@ -36,11 +51,13 @@ export interface GeneralCodeResolution {
 }
 
 /**
- * DISPLAY and CUSTOMER_IDENTITY are deliberately not resolved through this
- * endpoint at all (see CodesService.resolve's own comment) — DISPLAY needs
- * a live feed, not a one-shot lookup (its own SSE endpoint instead), and
- * CUSTOMER_IDENTITY has no public consumer yet (Phase 10's scanner job).
- * Presenting either here gets the same uniform 404 as an unrecognized code.
+ * DISPLAY, CUSTOMER_IDENTITY, and GUEST_CARD are deliberately not resolved
+ * through this endpoint at all (see CodesService.resolve's own comment) —
+ * DISPLAY needs a live feed, not a one-shot lookup (its own SSE endpoint
+ * instead), and CUSTOMER_IDENTITY/GUEST_CARD are only ever consumed via
+ * the staff-authenticated scan endpoint (Phase 10), never this public
+ * one. Presenting any of them here gets the same uniform 404 as an
+ * unrecognized code.
  */
 export type CodeResolution = QueueCodeResolution | GeneralCodeResolution;
 

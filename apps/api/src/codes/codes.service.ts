@@ -5,14 +5,16 @@ import { QueuesService } from "../queues/queues.service";
 import { generateShortPublicCode } from "../common/short-code.util";
 
 /**
- * The minimal code resolver (Phases 4, 6 & 9, §4.5/ADR-005) — QUEUE,
- * DISPLAY, GENERAL, and CUSTOMER_IDENTITY contexts. A generic
+ * The minimal code resolver (Phases 4, 6, 9 & 10, §4.5/ADR-005) — QUEUE,
+ * DISPLAY, GENERAL, CUSTOMER_IDENTITY, and GUEST_CARD contexts. A generic
  * `code → context` lookup, deliberately not the full unified model yet
  * (see the schema comment on the Code model for why). `resolve()` itself
- * only ever understands QUEUE and GENERAL codes (both one-shot landing
- * pages) — DISPLAY codes are resolved by the display module's own SSE
- * endpoint (a live feed, not a single REST lookup), and CUSTOMER_IDENTITY
- * has no public consumer yet (Phase 10's scanner job).
+ * only ever understands QUEUE and GENERAL codes (both one-shot public
+ * landing pages) — DISPLAY codes are resolved by the display module's own
+ * SSE endpoint (a live feed, not a single REST lookup), and
+ * CUSTOMER_IDENTITY/GUEST_CARD are only ever consumed via the
+ * staff-authenticated scan endpoint (QueueEntriesService.joinByScan,
+ * Phase 10), never this public one.
  */
 @Injectable()
 export class CodesService {
@@ -72,6 +74,21 @@ export class CodesService {
       data: { active: false },
     });
     return this.mintCode({ tenantId, customerId, contextType: "CUSTOMER_IDENTITY" });
+  }
+
+  /**
+   * Mints one guest card at a specific printed number (Phase 10, D-14) —
+   * called by GuestCardsService when growing a location's pool. No
+   * idempotent-reuse check here (unlike createForCustomer): pool sizing
+   * always asks for a specific next-available guestNumber, never "give me
+   * a card, any card."
+   */
+  async createGuestCard(
+    tenantId: string,
+    locationId: string,
+    guestNumber: number,
+  ): Promise<CodeSummary> {
+    return this.mintCode({ tenantId, locationId, guestNumber, contextType: "GUEST_CARD" });
   }
 
   /**
@@ -144,9 +161,9 @@ export class CodesService {
       };
     }
 
-    // DISPLAY and CUSTOMER_IDENTITY get the exact same uniform rejection as
-    // a nonexistent or deactivated code (G-07/G-39's "no signal" pattern) —
-    // this endpoint doesn't understand either of them.
+    // DISPLAY, CUSTOMER_IDENTITY, and GUEST_CARD get the exact same uniform
+    // rejection as a nonexistent or deactivated code (G-07/G-39's "no
+    // signal" pattern) — this endpoint doesn't understand any of them.
     throw notFoundCode();
   }
 
@@ -159,6 +176,8 @@ export class CodesService {
     contextType: CodeContextType;
     queueId?: string;
     customerId?: string;
+    locationId?: string;
+    guestNumber?: number;
   }): Promise<CodeSummary> {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {

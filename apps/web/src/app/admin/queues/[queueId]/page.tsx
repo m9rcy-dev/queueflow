@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Badge, Button, Card, Input } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
-import type { QueueEntryStatus, StaffQueueEntrySummary } from "@queueflow/types";
+import type { GuestCardSummary, QueueEntryStatus, StaffQueueEntrySummary } from "@queueflow/types";
 import { staffApi } from "../../../../lib/staff-api-client";
 import { useStaffSession } from "../../../../lib/use-staff-session";
 
@@ -42,6 +42,7 @@ export default function QueueDashboardPage() {
   const [callingNext, setCallingNext] = useState(false);
   const [showWalkInForm, setShowWalkInForm] = useState(false);
   const [deviceTrusting, setDeviceTrusting] = useState(false);
+  const [locationId, setLocationId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,6 +56,7 @@ export default function QueueDashboardPage() {
   useEffect(() => {
     if (!session) return;
     staffApi.listJoinableServices(queueId).then(setServices);
+    staffApi.getQueue(queueId).then((queue) => setLocationId(queue.locationId));
     refresh();
     const interval = setInterval(refresh, POLL_MS);
     return () => clearInterval(interval);
@@ -168,6 +170,9 @@ export default function QueueDashboardPage() {
         <Button variant="secondary" onClick={() => setShowWalkInForm((v) => !v)}>
           {showWalkInForm ? "Cancel" : "Add Walk-in"}
         </Button>
+        <Button variant="secondary" onClick={() => router.push(`/admin/queues/${queueId}/scan`)}>
+          Scan
+        </Button>
       </div>
 
       {showWalkInForm && (
@@ -181,6 +186,8 @@ export default function QueueDashboardPage() {
           }}
         />
       )}
+
+      {locationId && <GuestCardsPanel locationId={locationId} />}
 
       <Section title="Now serving / called">
         {inProgress.length === 0 && <Empty>No one called yet.</Empty>}
@@ -238,6 +245,90 @@ export default function QueueDashboardPage() {
         </Section>
       )}
     </main>
+  );
+}
+
+/** The location's guest-card pool (Phase 10, D-14) — how many cards exist and how many are currently out with a guest, plus a resize control. */
+function GuestCardsPanel({ locationId }: { locationId: string }) {
+  const [cards, setCards] = useState<GuestCardSummary[] | null>(null);
+  const [poolSizeInput, setPoolSizeInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    const result = await staffApi.listGuestCards(locationId);
+    setCards(result);
+    setPoolSizeInput(String(result.length));
+  }, [locationId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  async function handleResize(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    const poolSize = Number(poolSizeInput);
+    if (!Number.isInteger(poolSize) || poolSize < 0) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await staffApi.resizeGuestCardPool(locationId, poolSize);
+      setCards(result);
+    } catch (err) {
+      setError(errorMessage(err, "Couldn't resize the pool."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!cards) return null;
+  const inUseCount = cards.filter((c) => c.inUse).length;
+
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">
+          Guest cards
+        </h2>
+        <span className="text-sm text-text-secondary">
+          {inUseCount} of {cards.length} in use
+        </span>
+      </div>
+      {cards.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {cards.map((card) => (
+            <span
+              key={card.id}
+              className={
+                "rounded-md border px-2 py-1 text-xs " +
+                (card.inUse
+                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                  : "border-border text-text-secondary")
+              }
+            >
+              Guest {card.guestNumber}
+            </span>
+          ))}
+        </div>
+      )}
+      <form onSubmit={handleResize} className="flex items-end gap-2">
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Pool size
+          <input
+            type="number"
+            min={0}
+            max={500}
+            value={poolSizeInput}
+            onChange={(e) => setPoolSizeInput(e.target.value)}
+            className="w-24 rounded-md border border-border bg-surface px-3 py-2 text-text-primary"
+          />
+        </label>
+        <Button type="submit" variant="secondary" disabled={saving}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </form>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </Card>
   );
 }
 

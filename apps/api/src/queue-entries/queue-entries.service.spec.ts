@@ -14,6 +14,8 @@ describe("QueueEntriesService", () => {
     queueService: Record<string, jest.Mock>;
     customer: Record<string, jest.Mock>;
     queueTicketCounter: Record<string, jest.Mock>;
+    code: Record<string, jest.Mock>;
+    location: Record<string, jest.Mock>;
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
   };
@@ -58,7 +60,11 @@ describe("QueueEntriesService", () => {
 
   beforeEach(async () => {
     prisma = {
-      queue: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn().mockResolvedValue(queueRow) },
+      queue: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(queueRow),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(queueRow),
+      },
       queueEntry: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
@@ -72,9 +78,11 @@ describe("QueueEntriesService", () => {
         update: jest.fn(),
         updateMany: jest.fn(),
       },
-      queueService: { findUnique: jest.fn() },
+      queueService: { findUnique: jest.fn(), findMany: jest.fn() },
       customer: { upsert: jest.fn() },
       queueTicketCounter: { upsert: jest.fn() },
+      code: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+      location: { findUniqueOrThrow: jest.fn().mockResolvedValue(queueRow.location) },
       // Defaults to forwarding straight to `prisma` itself — every test
       // that doesn't care about transactional mechanics just sees its
       // usual mocked methods. callNext's own tests override this with a
@@ -341,6 +349,174 @@ describe("QueueEntriesService", () => {
     });
   });
 
+  describe("joinByScan — the physical counter scanner (Phase 10, D-10/D-11)", () => {
+    const guestCardCode = {
+      id: "code-1",
+      tenantId,
+      contextType: "GUEST_CARD",
+      active: true,
+      locationId: "loc-1",
+      currentEntryId: null as string | null,
+    };
+    const identityCode = {
+      id: "code-2",
+      tenantId,
+      contextType: "CUSTOMER_IDENTITY",
+      active: true,
+      customerId: "cust-1",
+    };
+    const richStaffEntry = {
+      ...entry,
+      id: "entry-9",
+      customer: null,
+      assignedStaff: null,
+      guestCard: { guestNumber: 3 },
+    };
+
+    it("404s for a queue belonging to another tenant (or that doesn't exist)", async () => {
+      prisma.queue.findFirst.mockResolvedValue(null);
+      await expect(service.joinByScan(tenantId, "queue-1", "CODE1")).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it("rejects a non-ACTIVE queue", async () => {
+      prisma.queue.findFirst.mockResolvedValue({ ...queueRow, status: "PAUSED" });
+      await expect(service.joinByScan(tenantId, "queue-1", "CODE1")).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it("404s for an unrecognized, deactivated, or another tenant's code", async () => {
+      prisma.code.findUnique.mockResolvedValue(null);
+      await expect(service.joinByScan(tenantId, "queue-1", "GARBAGE")).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it("404s for a QUEUE/DISPLAY/GENERAL code — this endpoint only understands GUEST_CARD/CUSTOMER_IDENTITY", async () => {
+      prisma.code.findUnique.mockResolvedValue({ ...guestCardCode, contextType: "GENERAL" });
+      await expect(service.joinByScan(tenantId, "queue-1", "CODE1")).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    describe("guest card", () => {
+      it("404s for a card belonging to a different location's pool", async () => {
+        prisma.code.findUnique.mockResolvedValue({ ...guestCardCode, locationId: "other-loc" });
+        await expect(service.joinByScan(tenantId, "queue-1", "CODE1")).rejects.toThrow(
+          NotFoundException,
+        );
+      });
+
+      it("rejects when the queue doesn't have exactly one active service configured", async () => {
+        prisma.code.findUnique.mockResolvedValue(guestCardCode);
+        prisma.queueService.findMany.mockResolvedValue([]);
+        await expect(service.joinByScan(tenantId, "queue-1", "CODE1")).rejects.toThrow(
+          ConflictException,
+        );
+      });
+
+      it("creates a new entry with no customer attached, and links the card to it", async () => {
+        prisma.code.findUnique.mockResolvedValue(guestCardCode);
+        prisma.queueService.findMany.mockResolvedValue([{ serviceId: "svc-1" }]);
+        prisma.$queryRaw.mockResolvedValue([{ id: "code-1", currentEntryId: null }]);
+        prisma.queueTicketCounter.upsert.mockResolvedValue({ lastNumber: 5 });
+        prisma.queueEntry.create.mockResolvedValue({
+          ...entry,
+          id: "entry-9",
+          customerId: null,
+          ticketNumber: 5,
+        });
+        prisma.queueEntry.findFirst.mockResolvedValue(richStaffEntry);
+
+        const result = await service.joinByScan(tenantId, "queue-1", "CODE1");
+
+        expect(prisma.queueEntry.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ customerId: null, serviceId: "svc-1", ticketNumber: 5 }),
+        });
+        expect(prisma.code.update).toHaveBeenCalledWith({
+          where: { id: "code-1" },
+          data: { currentEntryId: "entry-9" },
+        });
+        expect(result.customerName).toBe("Guest 3");
+        expect(result.guestCardNumber).toBe(3);
+      });
+
+      it("is idempotent: re-scanning an already-linked card returns the existing entry instead of creating a duplicate (G-54)", async () => {
+        prisma.code.findUnique.mockResolvedValue({ ...guestCardCode, currentEntryId: "entry-9" });
+        prisma.queueService.findMany.mockResolvedValue([{ serviceId: "svc-1" }]);
+        prisma.$queryRaw.mockResolvedValue([{ id: "code-1", currentEntryId: "entry-9" }]);
+        prisma.queueEntry.findUnique.mockResolvedValue({ id: "entry-9", status: "WAITING" });
+        prisma.queueEntry.findFirst.mockResolvedValue(richStaffEntry);
+
+        const result = await service.joinByScan(tenantId, "queue-1", "CODE1");
+
+        expect(prisma.queueEntry.create).not.toHaveBeenCalled();
+        expect(prisma.code.update).not.toHaveBeenCalled();
+        expect(result.id).toBe("entry-9");
+      });
+    });
+
+    describe("customer identity", () => {
+      it("creates a new entry attached to the customer", async () => {
+        prisma.code.findUnique.mockResolvedValue(identityCode);
+        prisma.queueEntry.findFirst
+          .mockResolvedValueOnce(null) // no existing active entry in this queue
+          .mockResolvedValueOnce({
+            ...richStaffEntry,
+            id: "entry-10",
+            customerId: "cust-1",
+            customer: { firstName: "Dana", phoneE164: "+64211234567" },
+            guestCard: null,
+          });
+        prisma.queueEntry.count.mockResolvedValue(0);
+        prisma.queueService.findMany.mockResolvedValue([{ serviceId: "svc-1" }]);
+        prisma.queueTicketCounter.upsert.mockResolvedValue({ lastNumber: 8 });
+        prisma.queueEntry.create.mockResolvedValue({
+          ...entry,
+          id: "entry-10",
+          customerId: "cust-1",
+          ticketNumber: 8,
+        });
+
+        const result = await service.joinByScan(tenantId, "queue-1", "IDCODE1");
+
+        expect(prisma.queueEntry.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            customerId: "cust-1",
+            serviceId: "svc-1",
+            ticketNumber: 8,
+          }),
+        });
+        expect(result.customerName).toBe("Dana");
+      });
+
+      it("is idempotent: re-scanning while already active in this queue returns the existing entry (G-54)", async () => {
+        prisma.code.findUnique.mockResolvedValue(identityCode);
+        prisma.queueEntry.findFirst
+          .mockResolvedValueOnce({ id: "entry-11", status: "WAITING" }) // already active
+          .mockResolvedValueOnce({ ...richStaffEntry, id: "entry-11", guestCard: null });
+
+        const result = await service.joinByScan(tenantId, "queue-1", "IDCODE1");
+
+        expect(prisma.queueEntry.create).not.toHaveBeenCalled();
+        expect(result.id).toBe("entry-11");
+      });
+
+      it("enforces the per-location active-ticket cap (G-34) — a scan doesn't bypass it", async () => {
+        prisma.code.findUnique.mockResolvedValue(identityCode);
+        prisma.queueEntry.findFirst.mockResolvedValueOnce(null);
+        prisma.queueEntry.count.mockResolvedValue(2); // == location's maxActiveTicketsPerCustomer
+
+        await expect(service.joinByScan(tenantId, "queue-1", "IDCODE1")).rejects.toThrow(
+          ConflictException,
+        );
+        expect(prisma.queueEntry.create).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   describe("staff-facing summaries include customer and assigned-staff identity (G-18)", () => {
     it("list() enriches every entry with the customer's name and the assigned staff member's name", async () => {
       queuesService.findOwnedQueue.mockResolvedValue(queueRow);
@@ -494,6 +670,32 @@ describe("QueueEntriesService", () => {
 
       const updateCall = prisma.queueEntry.updateMany.mock.calls[0][0];
       expect(updateCall.data.cancellationReason).toBe("customer requested");
+    });
+
+    it("releases a linked guest card once a transition reaches a terminal state (Phase 10, D-14)", async () => {
+      prisma.queueEntry.updateMany.mockResolvedValue({ count: 1 });
+      prisma.queueEntry.findFirstOrThrow.mockResolvedValue({ ...entry, status: "COMPLETED" });
+      prisma.queueEntry.findFirst.mockResolvedValue({ ...entry, status: "COMPLETED" });
+      prisma.queue.findUniqueOrThrow.mockResolvedValue(queueRow);
+      prisma.code.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.complete(tenantId, "entry-1");
+
+      expect(prisma.code.updateMany).toHaveBeenCalledWith({
+        where: { currentEntryId: "entry-1" },
+        data: { currentEntryId: null },
+      });
+    });
+
+    it("does not touch guest cards for a non-terminal transition (start: CALLED -> SERVING)", async () => {
+      prisma.queueEntry.updateMany.mockResolvedValue({ count: 1 });
+      prisma.queueEntry.findFirstOrThrow.mockResolvedValue({ ...entry, status: "SERVING" });
+      prisma.queueEntry.findFirst.mockResolvedValue({ ...entry, status: "SERVING" });
+      prisma.queue.findUniqueOrThrow.mockResolvedValue(queueRow);
+
+      await service.start(tenantId, "entry-1");
+
+      expect(prisma.code.updateMany).not.toHaveBeenCalled();
     });
   });
 

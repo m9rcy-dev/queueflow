@@ -18,6 +18,13 @@ number).
 - **Ticket numbers:** plain sequential integer per queue, reset at location-local midnight, allocated
   via an atomic counter update inside the join transaction; unique per
   `(queue_id, service_date, ticket_number)`.
+- **Guest-card claiming (Phase 10, D-14): plain `SELECT ... FOR UPDATE`, not `SKIP LOCKED`.** Two
+  near-simultaneous scans of the _same physical card_ should genuinely serialize — the second scanner
+  should see the first scan's result (the existing entry, returned idempotently, G-54), not skip past
+  it to create a second ticket for the same card. This is the opposite goal from Call Next's
+  `SKIP LOCKED` (which deliberately wants the _other_ transaction to move on to a different row) —
+  here there is no "different row" to move on to, so blocking briefly for the lock is the correct
+  behavior. See `QueueEntriesService.joinByScan`.
 
 ## Alternatives
 

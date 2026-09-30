@@ -104,6 +104,30 @@ describe("CodesService", () => {
     });
   });
 
+  describe("createGuestCard (Phase 10, D-14)", () => {
+    it("mints a GUEST_CARD-context code at a specific location + printed number", async () => {
+      prisma.code.create.mockResolvedValue({
+        ...codeRow,
+        contextType: "GUEST_CARD",
+        queueId: null,
+        locationId: "loc-1",
+        guestNumber: 3,
+      });
+
+      const result = await service.createGuestCard(tenantId, "loc-1", 3);
+
+      expect(prisma.code.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId,
+          locationId: "loc-1",
+          guestNumber: 3,
+          contextType: "GUEST_CARD",
+        }),
+      });
+      expect(result.contextType).toBe("GUEST_CARD");
+    });
+  });
+
   describe("deactivateGeneral", () => {
     it("404s if the code doesn't belong to this tenant / isn't GENERAL", async () => {
       prisma.code.updateMany.mockResolvedValue({ count: 0 });
@@ -192,12 +216,23 @@ describe("CodesService", () => {
       await expect(service.resolve("ABCD2345")).rejects.toThrow(NotFoundException);
     });
 
-    it("404s for a CUSTOMER_IDENTITY code — no public consumer exists yet (Phase 10's job)", async () => {
+    it("404s for a CUSTOMER_IDENTITY code — only the staff-authenticated scan endpoint understands it (Phase 10)", async () => {
       prisma.code.findUnique.mockResolvedValue({
         ...codeRow,
         contextType: "CUSTOMER_IDENTITY",
         queueId: null,
         customerId: "cust-1",
+      });
+      await expect(service.resolve("ABCD2345")).rejects.toThrow(NotFoundException);
+    });
+
+    it("404s for a GUEST_CARD code — same, staff-scan-only (Phase 10)", async () => {
+      prisma.code.findUnique.mockResolvedValue({
+        ...codeRow,
+        contextType: "GUEST_CARD",
+        queueId: null,
+        locationId: "loc-1",
+        guestNumber: 3,
       });
       await expect(service.resolve("ABCD2345")).rejects.toThrow(NotFoundException);
     });

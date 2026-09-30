@@ -64,6 +64,17 @@ export const joinQueueSchema = z.object({
 });
 export type JoinQueueInput = z.infer<typeof joinQueueSchema>;
 
+/**
+ * The physical counter scanner's one input (Phase 10, D-10/D-11) — whatever
+ * publicCode it just read off a guest card or a customer's personal QR.
+ * No service/name/phone fields: both scan kinds are self-serve-instant,
+ * no confirmation step (D-11).
+ */
+export const scanCodeSchema = z.object({
+  code: z.string().trim().min(1).max(50),
+});
+export type ScanCodeInput = z.infer<typeof scanCodeSchema>;
+
 export const cancelEntrySchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });

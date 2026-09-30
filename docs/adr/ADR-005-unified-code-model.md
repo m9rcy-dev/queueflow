@@ -53,10 +53,19 @@ terminal.
 - `APPOINTMENT_TICKET` doesn't exist before the appointment engine does — rides with Phase C.
 - **Built incrementally as concrete nullable FK columns, not the generalized `owner_type`/`owner_id`
   pair this ADR originally sketched** — `Code` gained `queueId` (Phase 4, `QUEUE`), then `customerId`
-  (Phase 9, `CUSTOMER_IDENTITY`), each nullable and populated only for its own context type, rather
-  than a single polymorphic owner reference up front. `GENERAL` (Phase 9, the "sign up here" poster)
-  needed neither — just `tenantId`, which every code already carries. Deliberate: the same
-  "build the concrete case only" discipline as everywhere else in this codebase (see schema comments
-  on `CodeContextType`) — a real `owner_type`/`owner_id` polymorphic column is easy to add later if a
-  genuinely new owner kind (e.g. `GUEST_CARD`, `APPOINTMENT_TICKET`) needs it, and isn't worth the
-  type-safety cost until then.
+  (Phase 9, `CUSTOMER_IDENTITY`), then `locationId`/`guestNumber`/`currentEntryId` (Phase 10,
+  `GUEST_CARD`), each nullable and populated only for its own context type, rather than a single
+  polymorphic owner reference up front. `GENERAL` (Phase 9, the "sign up here" poster) needed neither
+  — just `tenantId`, which every code already carries. `APPOINTMENT_TICKET` (Phase C) is the only
+  type left unbuilt. Deliberate: the same "build the concrete case only" discipline as everywhere
+  else in this codebase (see schema comments on `CodeContextType`) — four owner-kind-specific column
+  groups on one table turned out perfectly manageable in practice; the generalized polymorphic column
+  never became necessary, and revisiting that tradeoff isn't worth it unless a fifth kind's shape
+  looks nothing like the first four.
+- **`currentEntryId` (Phase 10) is the one column that isn't a pure "which owner" pointer** — it
+  tracks _current occupancy_ of a recyclable card (null = free, set = held by that QueueEntry right
+  now), a genuinely different kind of state than "which queue/customer/location owns this code
+  forever." Modeled as a nullable-unique FK on `Code` rather than a separate join table, claimed and
+  released under a `FOR UPDATE` row lock (claim, in `QueueEntriesService.joinByScan`) and a plain
+  `updateMany` (release, in `.transition()`) respectively — see those two call sites for the
+  concurrency reasoning.

@@ -22,6 +22,13 @@ import { normalizePhoneToE164 } from "../common/phone.util";
 import { getLocationServiceDate } from "../common/timezone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
 
+function notFoundScanCode(): NotFoundException {
+  return new NotFoundException({
+    code: "SCAN_CODE_NOT_FOUND",
+    message: "This code isn't recognized.",
+  });
+}
+
 /** Email if the customer has one on file (not true for any join-flow customer today), SMS otherwise (G-32/ADR-008) — every anonymous walk-in resolves to SMS by construction. */
 function resolveChannel(customer: { phoneE164: string; email: string | null }): {
   channel: NotificationChannel;
@@ -33,6 +40,8 @@ function resolveChannel(customer: { phoneE164: string; email: string | null }): 
 }
 
 const ACTIVE_STATUSES: QueueEntryStatus[] = ["WAITING", "CALLED", "SERVING"];
+/** Reaching any of these releases a linked guest card back to its pool (Phase 10, D-14) — SKIPPED is deliberately excluded, since the guest hasn't left, `requeue` brings the entry straight back into WAITING. */
+const TERMINAL_FOR_GUEST_CARD_RELEASE: QueueEntryStatus[] = ["COMPLETED", "CANCELLED", "NO_SHOW"];
 
 type EntryRow = {
   id: string;
@@ -53,6 +62,8 @@ type EntryRow = {
 type StaffEntryRow = EntryRow & {
   customer: { firstName: string | null; phoneE164: string } | null;
   assignedStaff: { id: string; user: { displayName: string } } | null;
+  // The GUEST_CARD code currently linked to this entry, if any (Phase 10) — null for every non-guest-card entry.
+  guestCard: { guestNumber: number | null } | null;
 };
 
 /**
@@ -213,6 +224,207 @@ export class QueueEntriesService {
     return this.join(queueId, input);
   }
 
+  /**
+   * The physical counter scanner's one operation (Phase 10, D-10/D-11) —
+   * staff-authenticated (the scanner is business hardware, not a
+   * customer's own device), instant, no confirmation step. Branches on
+   * whichever code kind was actually scanned; anything else (QUEUE/
+   * DISPLAY/GENERAL) gets the same uniform rejection as an unrecognized
+   * code — this endpoint isn't a general code resolver.
+   */
+  async joinByScan(
+    tenantId: string,
+    queueId: string,
+    publicCode: string,
+  ): Promise<StaffQueueEntrySummary> {
+    const queue = await this.prisma.queue.findFirst({
+      where: { id: queueId, tenantId },
+      include: { location: true },
+    });
+    if (!queue) {
+      throw new NotFoundException({ code: "QUEUE_NOT_FOUND", message: "Queue not found." });
+    }
+    if (queue.status !== "ACTIVE") {
+      throw new ConflictException({
+        code: "QUEUE_NOT_ACTIVE",
+        message: "This queue is not currently accepting customers.",
+      });
+    }
+
+    const code = await this.prisma.code.findUnique({ where: { publicCode } });
+    if (!code || !code.active || code.tenantId !== tenantId) {
+      throw notFoundScanCode();
+    }
+
+    if (code.contextType === "GUEST_CARD") {
+      return this.joinByGuestCard(tenantId, queue, code);
+    }
+    if (code.contextType === "CUSTOMER_IDENTITY") {
+      return this.joinByCustomerIdentity(tenantId, queue, code);
+    }
+    throw notFoundScanCode();
+  }
+
+  /**
+   * Zero personal data by design (D-14) — customerId stays null the whole
+   * way through. The card's own currentEntryId linkage *is* the dedup
+   * guarantee (G-54): re-scanning an already-linked card returns the
+   * existing entry rather than minting a second one, and a `FOR UPDATE`
+   * row lock on the code closes the race between two near-simultaneous
+   * scans of the same physical card (whichever transaction commits first
+   * wins the claim; the loser sees currentEntryId already set and returns
+   * that entry instead of creating an orphaned duplicate).
+   */
+  private async joinByGuestCard(
+    tenantId: string,
+    queue: { id: string; locationId: string; servingCapacity: number },
+    code: { id: string; locationId: string | null },
+  ): Promise<StaffQueueEntrySummary> {
+    if (code.locationId !== queue.locationId) {
+      // A guest card from a different location's pool — same uniform
+      // rejection as garbage input, not a hint about where it does belong.
+      throw notFoundScanCode();
+    }
+
+    const serviceId = await this.resolveSingleActiveService(queue.id);
+    const serviceDate = getLocationServiceDate(
+      (await this.prisma.location.findUniqueOrThrow({ where: { id: queue.locationId } })).timezone,
+    );
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string; currentEntryId: string | null }[]>`
+        SELECT id, "currentEntryId" FROM codes WHERE id = ${code.id} FOR UPDATE
+      `;
+      const currentEntryId = locked[0]?.currentEntryId ?? null;
+      if (currentEntryId) {
+        const existing = await tx.queueEntry.findUnique({ where: { id: currentEntryId } });
+        if (existing && ACTIVE_STATUSES.includes(existing.status)) {
+          return { entryId: existing.id, created: false };
+        }
+        // The card thinks it's still held but its entry already reached a
+        // terminal state — should have been released already (defensive
+        // fallback only); treat the card as free and fall through.
+      }
+
+      const counter = await tx.queueTicketCounter.upsert({
+        where: { queueId_serviceDate: { queueId: queue.id, serviceDate } },
+        create: { queueId: queue.id, serviceDate, lastNumber: 1 },
+        update: { lastNumber: { increment: 1 } },
+      });
+      const created = await tx.queueEntry.create({
+        data: {
+          tenantId,
+          queueId: queue.id,
+          serviceId,
+          customerId: null,
+          publicToken: generateSecurePublicToken(),
+          ticketNumber: counter.lastNumber,
+          serviceDate,
+          idempotencyKey: null,
+        },
+      });
+      await tx.code.update({ where: { id: code.id }, data: { currentEntryId: created.id } });
+      await this.evaluateWaitingThresholds(tx, queue.id);
+      return { entryId: created.id, created: true };
+    });
+
+    if (result.created) {
+      this.queueEvents.emitQueueChanged(queue.id);
+      this.triggerNotificationProcessing();
+    }
+    return this.getByIdForTenant(tenantId, result.entryId);
+  }
+
+  /**
+   * A signed-up customer's own identity code (Phase 9/10, D-11). Unlike a
+   * guest card, a real customerId exists here, so the ordinary per-location
+   * active-ticket cap (G-34) still applies — a scan doesn't bypass it.
+   * Re-scanning while already active in *this* queue is idempotent (G-54):
+   * returns the existing entry rather than erroring or duplicating.
+   */
+  private async joinByCustomerIdentity(
+    tenantId: string,
+    queue: { id: string; locationId: string; servingCapacity: number },
+    code: { customerId: string | null },
+  ): Promise<StaffQueueEntrySummary> {
+    const customerId = code.customerId;
+    if (!customerId) throw notFoundScanCode(); // defensive — a CUSTOMER_IDENTITY row always has one
+
+    const existing = await this.prisma.queueEntry.findFirst({
+      where: { queueId: queue.id, customerId, status: { in: ACTIVE_STATUSES } },
+      orderBy: { joinedAt: "desc" },
+    });
+    if (existing) {
+      return this.getByIdForTenant(tenantId, existing.id);
+    }
+
+    const location = await this.prisma.location.findUniqueOrThrow({
+      where: { id: queue.locationId },
+    });
+    const activeAtLocation = await this.prisma.queueEntry.count({
+      where: {
+        customerId,
+        status: { in: ACTIVE_STATUSES },
+        queue: { locationId: queue.locationId },
+      },
+    });
+    if (activeAtLocation >= location.maxActiveTicketsPerCustomer) {
+      throw new ConflictException({
+        code: "TOO_MANY_ACTIVE_TICKETS_LOCATION",
+        message: "You already have the maximum number of active tickets at this location.",
+      });
+    }
+
+    const serviceId = await this.resolveSingleActiveService(queue.id);
+    const serviceDate = getLocationServiceDate(location.timezone);
+    const counter = await this.prisma.queueTicketCounter.upsert({
+      where: { queueId_serviceDate: { queueId: queue.id, serviceDate } },
+      create: { queueId: queue.id, serviceDate, lastNumber: 1 },
+      update: { lastNumber: { increment: 1 } },
+    });
+    const entry = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.queueEntry.create({
+        data: {
+          tenantId,
+          queueId: queue.id,
+          serviceId,
+          customerId,
+          publicToken: generateSecurePublicToken(),
+          ticketNumber: counter.lastNumber,
+          serviceDate,
+          idempotencyKey: null,
+        },
+      });
+      await this.evaluateWaitingThresholds(tx, queue.id);
+      return created;
+    });
+    this.queueEvents.emitQueueChanged(queue.id);
+    this.triggerNotificationProcessing();
+    return this.getByIdForTenant(tenantId, entry.id);
+  }
+
+  /**
+   * Scan-to-join skips the service-picker step entirely (D-11's "no
+   * confirmation" requirement) — it only works when there's exactly one
+   * active+queueEnabled service to default to. A queue offering more than
+   * one service needs the QR-poster or staff walk-in form instead, both of
+   * which do offer a picker. Deliberate MVP scoping, not an oversight.
+   */
+  private async resolveSingleActiveService(queueId: string): Promise<string> {
+    const services = await this.prisma.queueService.findMany({
+      where: { queueId, service: { active: true, queueEnabled: true } },
+      select: { serviceId: true },
+    });
+    if (services.length !== 1) {
+      throw new ConflictException({
+        code: "SCAN_REQUIRES_SINGLE_SERVICE",
+        message:
+          "Scan-to-join needs this queue to have exactly one active service configured — use the walk-in form instead.",
+      });
+    }
+    return services[0].serviceId;
+  }
+
   /** Staff-facing single-entry lookup — includes customer identity and the acting staff member (G-18), never exposed on the public/customer routes. */
   async getByIdForTenant(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
     const entry = await this.findOwnedStaffEntry(tenantId, entryId);
@@ -272,6 +484,7 @@ export class QueueEntriesService {
         service: { select: { durationMinutes: true } },
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
+        guestCard: { select: { guestNumber: true } },
       },
     });
     return entries.map((entry) =>
@@ -458,6 +671,15 @@ export class QueueEntriesService {
       if (updateResult.count > 0) {
         const updated = await tx.queueEntry.findFirstOrThrow({ where: { id: entryId, tenantId } });
         await this.evaluateWaitingThresholds(tx, updated.queueId);
+        if (TERMINAL_FOR_GUEST_CARD_RELEASE.includes(updated.status)) {
+          // A no-op update if no card is linked — cheap enough not to bother
+          // checking first, and correct for both staff and public-token
+          // cancel (cancelByPublicToken shares this same transition() path).
+          await tx.code.updateMany({
+            where: { currentEntryId: updated.id },
+            data: { currentEntryId: null },
+          });
+        }
       }
       return updateResult;
     });
@@ -686,6 +908,7 @@ export class QueueEntriesService {
       include: {
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
+        guestCard: { select: { guestNumber: true } },
       },
     });
     if (!entry) {
@@ -781,10 +1004,13 @@ export class QueueEntriesService {
   ): StaffQueueEntrySummary {
     return {
       ...this.toSummary(entry, positionInfo),
-      customerName: entry.customer?.firstName ?? "Walk-in",
+      customerName:
+        entry.customer?.firstName ??
+        (entry.guestCard ? `Guest ${entry.guestCard.guestNumber}` : "Walk-in"),
       customerPhone: entry.customer?.phoneE164 ?? "",
       assignedStaffId: entry.assignedStaff?.id ?? null,
       assignedStaffName: entry.assignedStaff?.user.displayName ?? null,
+      guestCardNumber: entry.guestCard?.guestNumber ?? null,
     };
   }
 
