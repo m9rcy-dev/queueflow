@@ -53,3 +53,24 @@ export interface StaffQueueEntrySummary extends QueueEntrySummary {
   /** Set only for a Phase 10 guest-card entry (customerName falls back to "Guest {N}" in that case too) — lets staff call out a number instead of a name. */
   guestCardNumber: number | null;
 }
+
+/**
+ * The live "today" dashboard (Phase 11, G-14) — scoped to the location's
+ * local service-day (same boundary `QueueTicketCounter` already resets
+ * on), not a rolling 24h window. Averages are null (not 0) when there's
+ * no data yet today, so the UI can show "—" instead of a misleading zero.
+ * Historical/trend analytics across multiple days is explicitly deferred
+ * (ADR-010) — this is "how's today going," nothing more.
+ */
+export interface QueueTodayStats {
+  queueId: string;
+  queueName: string;
+  /** Live right now, not "today"-scoped — how long the current line actually is. */
+  waitingCount: number;
+  servedCount: number;
+  averageWaitMinutes: number | null;
+  averageServiceDurationMinutes: number | null;
+  /** Every CANCELLED entry today — staff- and customer-initiated are not distinguished today (see schema comment on QueueEntry.cancellationReason). */
+  abandonedCount: number;
+  noShowCount: number;
+}

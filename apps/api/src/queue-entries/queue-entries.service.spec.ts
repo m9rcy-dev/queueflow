@@ -551,6 +551,97 @@ describe("QueueEntriesService", () => {
     });
   });
 
+  describe("getTodayStats — the live 'today' dashboard (Phase 11, G-14)", () => {
+    it("404s for a queue belonging to another tenant", async () => {
+      queuesService.findOwnedQueue.mockRejectedValue(new NotFoundException());
+      await expect(service.getTodayStats(tenantId, "queue-1")).rejects.toThrow(NotFoundException);
+    });
+
+    it("waitingCount is live (not service-date-scoped), the rest is scoped to today's entries by status", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue(queueRow);
+      prisma.queueEntry.count.mockResolvedValue(3);
+      prisma.queueEntry.findMany.mockResolvedValue([
+        {
+          status: "COMPLETED",
+          joinedAt: new Date(),
+          calledAt: null,
+          startedAt: null,
+          completedAt: null,
+        },
+        {
+          status: "CANCELLED",
+          joinedAt: new Date(),
+          calledAt: null,
+          startedAt: null,
+          completedAt: null,
+        },
+        {
+          status: "CANCELLED",
+          joinedAt: new Date(),
+          calledAt: null,
+          startedAt: null,
+          completedAt: null,
+        },
+        {
+          status: "NO_SHOW",
+          joinedAt: new Date(),
+          calledAt: null,
+          startedAt: null,
+          completedAt: null,
+        },
+      ]);
+
+      const result = await service.getTodayStats(tenantId, "queue-1");
+
+      expect(result.waitingCount).toBe(3);
+      expect(result.servedCount).toBe(1);
+      expect(result.abandonedCount).toBe(2);
+      expect(result.noShowCount).toBe(1);
+      expect(result.queueId).toBe(queueRow.id);
+      expect(result.queueName).toBe(queueRow.name);
+    });
+
+    it("averages are null, not 0, when there's no data yet today", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue(queueRow);
+      prisma.queueEntry.count.mockResolvedValue(0);
+      prisma.queueEntry.findMany.mockResolvedValue([]);
+
+      const result = await service.getTodayStats(tenantId, "queue-1");
+
+      expect(result.averageWaitMinutes).toBeNull();
+      expect(result.averageServiceDurationMinutes).toBeNull();
+    });
+
+    it("computes average wait (calledAt - joinedAt) and average service duration (completedAt - startedAt) in minutes", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue(queueRow);
+      prisma.queueEntry.count.mockResolvedValue(0);
+      const base = new Date("2026-01-01T00:00:00Z");
+      prisma.queueEntry.findMany.mockResolvedValue([
+        {
+          status: "SERVING",
+          joinedAt: base,
+          calledAt: new Date(base.getTime() + 5 * 60_000),
+          startedAt: new Date(base.getTime() + 5 * 60_000),
+          completedAt: null,
+        },
+        {
+          status: "COMPLETED",
+          joinedAt: base,
+          calledAt: new Date(base.getTime() + 15 * 60_000),
+          startedAt: new Date(base.getTime() + 15 * 60_000),
+          completedAt: new Date(base.getTime() + 35 * 60_000),
+        },
+      ]);
+
+      const result = await service.getTodayStats(tenantId, "queue-1");
+
+      // (5 + 15) / 2 = 10 minutes average wait.
+      expect(result.averageWaitMinutes).toBe(10);
+      // Only the completed entry has both startedAt and completedAt: 20 minutes.
+      expect(result.averageServiceDurationMinutes).toBe(20);
+    });
+  });
+
   describe("callNext — the concurrency-critical operation (ADR-006)", () => {
     it("rejects calling next on a non-ACTIVE queue", async () => {
       queuesService.findOwnedQueue.mockResolvedValue({ ...queueRow, status: "CLOSED" });

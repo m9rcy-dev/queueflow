@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import type { InviteSummary, TenantSummary } from "@queueflow/types";
+import type { InviteSummary, TenantMemberSummary, TenantSummary } from "@queueflow/types";
 import type { CreateInviteInput, UpdateCapabilitiesInput } from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
@@ -39,6 +39,22 @@ export class TenantsService {
       },
     });
     return toTenantSummary(tenant);
+  }
+
+  /** Current staff roster (Phase 11) — read-only; role changes/removal aren't a resolved requirement, only invite + revoke-the-invite. */
+  async listMembers(tenantId: string): Promise<TenantMemberSummary[]> {
+    await this.findOwnedTenant(tenantId);
+    const memberships = await this.prisma.tenantUser.findMany({
+      where: { tenantId },
+      include: { user: { select: { displayName: true, email: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    return memberships.map((m) => ({
+      tenantUserId: m.id,
+      displayName: m.user.displayName,
+      email: m.user.email,
+      role: m.role,
+    }));
   }
 
   async createInvite(tenantId: string, input: CreateInviteInput): Promise<InviteSummary> {

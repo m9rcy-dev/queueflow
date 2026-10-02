@@ -45,6 +45,12 @@ export class TenantsController {
     return this.tenantsService.updateCapabilities(user.tenantId, body);
   }
 
+  @Get("staff")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  listStaff(@CurrentUser() user: RequestUser) {
+    return this.tenantsService.listMembers(user.tenantId);
+  }
+
   @Post("invites")
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
   createInvite(

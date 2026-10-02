@@ -1,15 +1,34 @@
 import type {
   AuthSuccessResponse,
+  BusinessHoursEntry,
+  CodeContextType,
+  CodeSummary,
   DeviceContextResponse,
   GuestCardSummary,
+  InviteSummary,
+  LocationSummary,
   LoginVerifyResponse,
   QueueSummary,
+  QueueTodayStats,
+  ServiceSummary,
   StaffQueueEntrySummary,
+  TenantMemberSummary,
   TenantRole,
   TenantSummary,
   TrustDeviceResponse,
 } from "@queueflow/types";
-import type { JoinQueueInput } from "@queueflow/validation";
+import type {
+  CreateInviteInput,
+  CreateLocationInput,
+  CreateQueueInput,
+  CreateServiceInput,
+  JoinQueueInput,
+  ReplaceBusinessHoursInput,
+  UpdateCapabilitiesInput,
+  UpdateLocationInput,
+  UpdateQueueConfigInput,
+  UpdateServiceInput,
+} from "@queueflow/validation";
 import { ApiError } from "./errors";
 
 /** Mirrors apps/api's RequestUser (an API-internal shape, not published to @queueflow/types) — what GET /auth/me returns. */
@@ -169,12 +188,139 @@ export class StaffApiClient {
     return this.request<TenantSummary>("/tenants/me");
   }
 
+  updateCapabilities(input: UpdateCapabilitiesInput): Promise<TenantSummary> {
+    return this.request("/tenants/me/capabilities", { method: "PATCH", body: input });
+  }
+
+  listStaff(): Promise<TenantMemberSummary[]> {
+    return this.request("/tenants/me/staff");
+  }
+
+  createInvite(input: CreateInviteInput): Promise<InviteSummary> {
+    return this.request("/tenants/me/invites", { method: "POST", body: input });
+  }
+
+  listInvites(): Promise<InviteSummary[]> {
+    return this.request("/tenants/me/invites");
+  }
+
+  revokeInvite(inviteId: string): Promise<void> {
+    return this.request(`/tenants/me/invites/${inviteId}`, { method: "DELETE" });
+  }
+
+  createLocation(input: CreateLocationInput): Promise<LocationSummary> {
+    return this.request("/tenants/me/locations", { method: "POST", body: input });
+  }
+
+  listLocations(): Promise<LocationSummary[]> {
+    return this.request("/tenants/me/locations");
+  }
+
+  getLocation(locationId: string): Promise<LocationSummary> {
+    return this.request(`/tenants/me/locations/${locationId}`);
+  }
+
+  updateLocation(locationId: string, input: UpdateLocationInput): Promise<LocationSummary> {
+    return this.request(`/tenants/me/locations/${locationId}`, { method: "PATCH", body: input });
+  }
+
+  getBusinessHours(locationId: string): Promise<BusinessHoursEntry[]> {
+    return this.request(`/tenants/me/locations/${locationId}/business-hours`);
+  }
+
+  replaceBusinessHours(
+    locationId: string,
+    input: ReplaceBusinessHoursInput,
+  ): Promise<BusinessHoursEntry[]> {
+    return this.request(`/tenants/me/locations/${locationId}/business-hours`, {
+      method: "PUT",
+      body: input,
+    });
+  }
+
+  createService(input: CreateServiceInput): Promise<ServiceSummary> {
+    return this.request("/tenants/me/services", { method: "POST", body: input });
+  }
+
+  listServices(locationId?: string): Promise<ServiceSummary[]> {
+    const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : "";
+    return this.request(`/tenants/me/services${query}`);
+  }
+
+  updateService(serviceId: string, input: UpdateServiceInput): Promise<ServiceSummary> {
+    return this.request(`/tenants/me/services/${serviceId}`, { method: "PATCH", body: input });
+  }
+
+  createQueue(input: CreateQueueInput): Promise<QueueSummary> {
+    return this.request("/tenants/me/queues", { method: "POST", body: input });
+  }
+
   listQueues(): Promise<QueueSummary[]> {
     return this.request<QueueSummary[]>("/tenants/me/queues");
   }
 
   getQueue(queueId: string): Promise<QueueSummary> {
     return this.request<QueueSummary>(`/tenants/me/queues/${queueId}`);
+  }
+
+  updateQueueConfig(queueId: string, input: UpdateQueueConfigInput): Promise<QueueSummary> {
+    return this.request(`/tenants/me/queues/${queueId}`, { method: "PATCH", body: input });
+  }
+
+  updateQueueStatus(queueId: string, status: QueueSummary["status"]): Promise<QueueSummary> {
+    return this.request(`/tenants/me/queues/${queueId}/status`, {
+      method: "PATCH",
+      body: { status },
+    });
+  }
+
+  attachService(queueId: string, serviceId: string): Promise<{ message: string }> {
+    return this.request(`/tenants/me/queues/${queueId}/services`, {
+      method: "POST",
+      body: { serviceId },
+    });
+  }
+
+  listAttachedServiceIds(queueId: string): Promise<string[]> {
+    return this.request(`/tenants/me/queues/${queueId}/services`);
+  }
+
+  getTodayStats(queueId: string): Promise<QueueTodayStats> {
+    return this.request(`/tenants/me/queues/${queueId}/stats/today`);
+  }
+
+  /** QUEUE/DISPLAY codes only — the tenant-level GENERAL "sign up here" poster uses createGeneralCode/listGeneralCodes/deactivateGeneralCode instead (not queue-scoped). */
+  createCode(queueId: string, contextType?: CodeContextType): Promise<CodeSummary> {
+    return this.request(`/tenants/me/queues/${queueId}/codes`, {
+      method: "POST",
+      body: contextType ? { contextType } : {},
+    });
+  }
+
+  listCodes(queueId: string): Promise<CodeSummary[]> {
+    return this.request(`/tenants/me/queues/${queueId}/codes`);
+  }
+
+  deactivateCode(queueId: string, codeId: string): Promise<void> {
+    return this.request(`/tenants/me/queues/${queueId}/codes/${codeId}/deactivate`, {
+      method: "POST",
+    });
+  }
+
+  createGeneralCode(): Promise<CodeSummary> {
+    return this.request("/tenants/me/codes", { method: "POST", body: { contextType: "GENERAL" } });
+  }
+
+  listGeneralCodes(): Promise<CodeSummary[]> {
+    return this.request("/tenants/me/codes");
+  }
+
+  regenerateGeneralCode(): Promise<CodeSummary> {
+    return this.request("/tenants/me/codes/regenerate", { method: "POST" });
+  }
+
+  deactivateGeneralCode(codeId: string): Promise<void> {
+    return this.request(`/tenants/me/codes/${codeId}/deactivate`, { method: "POST" });
   }
 
   listEntries(queueId: string, status?: string): Promise<StaffQueueEntrySummary[]> {

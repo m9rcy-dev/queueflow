@@ -4,9 +4,15 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Badge, Button, Card, Input } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
-import type { GuestCardSummary, QueueEntryStatus, StaffQueueEntrySummary } from "@queueflow/types";
+import type {
+  GuestCardSummary,
+  QueueEntryStatus,
+  QueueTodayStats,
+  StaffQueueEntrySummary,
+} from "@queueflow/types";
 import { staffApi } from "../../../../lib/staff-api-client";
 import { useStaffSession } from "../../../../lib/use-staff-session";
+import { AdminNav } from "../../../../components/AdminNav";
 
 const POLL_MS = 3_000;
 
@@ -125,29 +131,34 @@ export default function QueueDashboardPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
-      <header className="flex items-center justify-between pt-4">
-        <h1 className="text-xl font-semibold text-text-primary">Queue Dashboard</h1>
-        <div className="flex gap-3 text-sm">
-          <button
-            type="button"
-            onClick={() => router.push("/admin/pin-setup")}
-            className="text-text-secondary underline"
-          >
-            Set up PIN
-          </button>
-          <button
-            type="button"
-            onClick={handleTrustDevice}
-            disabled={deviceTrusting}
-            className="text-text-secondary underline"
-          >
-            Trust this device
-          </button>
-          <button type="button" onClick={handleLogout} className="text-text-secondary underline">
-            Log out
-          </button>
+      <header className="flex flex-col gap-4 pt-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold text-text-primary">Queue Dashboard</h1>
+          <div className="flex gap-3 text-sm">
+            <button
+              type="button"
+              onClick={() => router.push("/admin/pin-setup")}
+              className="text-text-secondary underline"
+            >
+              Set up PIN
+            </button>
+            <button
+              type="button"
+              onClick={handleTrustDevice}
+              disabled={deviceTrusting}
+              className="text-text-secondary underline"
+            >
+              Trust this device
+            </button>
+            <button type="button" onClick={handleLogout} className="text-text-secondary underline">
+              Log out
+            </button>
+          </div>
         </div>
+        <AdminNav current="queues" />
       </header>
+
+      <TodayStatsBar queueId={queueId} />
 
       {banner && (
         <div
@@ -172,6 +183,12 @@ export default function QueueDashboardPage() {
         </Button>
         <Button variant="secondary" onClick={() => router.push(`/admin/queues/${queueId}/scan`)}>
           Scan
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => router.push(`/admin/queues/${queueId}/settings`)}
+        >
+          Settings
         </Button>
       </div>
 
@@ -245,6 +262,56 @@ export default function QueueDashboardPage() {
         </Section>
       )}
     </main>
+  );
+}
+
+/** The live "today" dashboard (Phase 11, G-14) — refetched alongside the entry list, same POLL_MS cadence. */
+function TodayStatsBar({ queueId }: { queueId: string }) {
+  const [stats, setStats] = useState<QueueTodayStats | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setStats(await staffApi.getTodayStats(queueId));
+    } catch {
+      // Same "don't interrupt the dashboard over a transient poll failure" reasoning as the entry list.
+    }
+  }, [queueId]);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, POLL_MS);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  if (!stats) return null;
+
+  return (
+    <Card className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-5">
+      <Stat label="Waiting now" value={stats.waitingCount} />
+      <Stat label="Served today" value={stats.servedCount} />
+      <Stat label="Avg wait" value={stats.averageWaitMinutes} suffix=" min" />
+      <Stat label="Avg service time" value={stats.averageServiceDurationMinutes} suffix=" min" />
+      <Stat label="Abandoned / no-show" value={`${stats.abandonedCount} / ${stats.noShowCount}`} />
+    </Card>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  suffix = "",
+}: {
+  label: string;
+  value: number | string | null;
+  suffix?: string;
+}) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-2xl font-semibold text-text-primary">
+        {value === null ? "—" : `${value}${suffix}`}
+      </span>
+      <span className="text-xs text-text-secondary">{label}</span>
+    </div>
   );
 }
 

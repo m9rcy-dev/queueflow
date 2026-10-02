@@ -5,6 +5,7 @@ import type {
   JoinQueueResponse,
   QueueEntryStatus,
   QueueEntrySummary,
+  QueueTodayStats,
   StaffQueueEntrySummary,
 } from "@queueflow/types";
 import type { JoinQueueInput } from "@queueflow/validation";
@@ -21,6 +22,12 @@ import {
 import { normalizePhoneToE164 } from "../common/phone.util";
 import { getLocationServiceDate } from "../common/timezone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
+
+/** Rounded to the nearest minute; null (not 0) for an empty set — "no data yet" must never look like "instant" on the dashboard (Phase 11, G-14). */
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+}
 
 function notFoundScanCode(): NotFoundException {
   return new NotFoundException({
@@ -490,6 +497,54 @@ export class QueueEntriesService {
     return entries.map((entry) =>
       this.toStaffSummary(entry, this.computePositionSync(entry, entries, queue.servingCapacity)),
     );
+  }
+
+  /**
+   * The live "today" dashboard (Phase 11, G-14) — scoped to the location's
+   * local service-day, the same boundary the ticket counter itself resets
+   * on (getLocationServiceDate), not a rolling 24h window. Averages are
+   * computed only over entries that actually reached the relevant
+   * timestamp today (e.g. a WAITING entry contributes nothing to average
+   * wait yet) — null, not 0, when there's no data to average.
+   */
+  async getTodayStats(tenantId: string, queueId: string): Promise<QueueTodayStats> {
+    const queue = await this.queuesService.findOwnedQueue(tenantId, queueId);
+    const location = await this.prisma.location.findUniqueOrThrow({
+      where: { id: queue.locationId },
+    });
+    const serviceDate = getLocationServiceDate(location.timezone);
+
+    const [waitingCount, todaysEntries] = await Promise.all([
+      this.prisma.queueEntry.count({ where: { queueId, status: "WAITING" } }),
+      this.prisma.queueEntry.findMany({
+        where: { queueId, serviceDate },
+        select: {
+          status: true,
+          joinedAt: true,
+          calledAt: true,
+          startedAt: true,
+          completedAt: true,
+        },
+      }),
+    ]);
+
+    const waitMinutes = todaysEntries
+      .filter((e) => e.calledAt)
+      .map((e) => (e.calledAt!.getTime() - e.joinedAt.getTime()) / 60_000);
+    const serviceDurationMinutes = todaysEntries
+      .filter((e) => e.startedAt && e.completedAt)
+      .map((e) => (e.completedAt!.getTime() - e.startedAt!.getTime()) / 60_000);
+
+    return {
+      queueId: queue.id,
+      queueName: queue.name,
+      waitingCount,
+      servedCount: todaysEntries.filter((e) => e.status === "COMPLETED").length,
+      averageWaitMinutes: average(waitMinutes),
+      averageServiceDurationMinutes: average(serviceDurationMinutes),
+      abandonedCount: todaysEntries.filter((e) => e.status === "CANCELLED").length,
+      noShowCount: todaysEntries.filter((e) => e.status === "NO_SHOW").length,
+    };
   }
 
   /**

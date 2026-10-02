@@ -58,6 +58,12 @@ export class QueueEntriesController {
     return this.queueEntriesService.joinByScan(user.tenantId, queueId, body.code);
   }
 
+  /** The live "today" dashboard (Phase 11, G-14). */
+  @Get("queues/:queueId/stats/today")
+  getTodayStats(@CurrentUser() user: RequestUser, @Param("queueId") queueId: string) {
+    return this.queueEntriesService.getTodayStats(user.tenantId, queueId);
+  }
+
   @Get("queue-entries/:id")
   get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     return this.queueEntriesService.getByIdForTenant(user.tenantId, id);

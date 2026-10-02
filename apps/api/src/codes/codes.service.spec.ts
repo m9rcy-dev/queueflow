@@ -11,6 +11,7 @@ describe("CodesService", () => {
 
   const tenantId = "tenant-1";
   const codeRow = {
+    id: "code-1",
     publicCode: "ABCD2345",
     contextType: "QUEUE" as const,
     queueId: "queue-1",
@@ -101,6 +102,26 @@ describe("CodesService", () => {
         data: expect.objectContaining({ tenantId, contextType: "GENERAL" }),
       });
       expect(result.contextType).toBe("GENERAL");
+    });
+  });
+
+  describe("regenerateGeneral (Phase 11)", () => {
+    it("deactivates every active GENERAL code first, then mints a fresh one (never reuses the old publicCode)", async () => {
+      prisma.code.updateMany.mockResolvedValue({ count: 1 });
+      prisma.code.create.mockResolvedValue({
+        ...codeRow,
+        publicCode: "NEWPOSTER",
+        contextType: "GENERAL",
+        queueId: null,
+      });
+
+      const result = await service.regenerateGeneral(tenantId);
+
+      expect(prisma.code.updateMany).toHaveBeenCalledWith({
+        where: { tenantId, contextType: "GENERAL", active: true },
+        data: { active: false },
+      });
+      expect(result.publicCode).toBe("NEWPOSTER");
     });
   });
 

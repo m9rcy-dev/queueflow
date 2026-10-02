@@ -54,6 +54,13 @@ export class TenantCodesController {
     return this.codesService.listGeneral(user.tenantId);
   }
 
+  /** Rotation for a lost/leaked poster code (Phase 11) — deactivates every active GENERAL code first, then mints a fresh one. */
+  @Post("regenerate")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  regenerate(@CurrentUser() user: RequestUser) {
+    return this.codesService.regenerateGeneral(user.tenantId);
+  }
+
   @Post(":codeId/deactivate")
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
   @HttpCode(HttpStatus.NO_CONTENT)

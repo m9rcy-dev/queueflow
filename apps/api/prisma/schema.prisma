@@ -471,6 +471,11 @@ model QueueEntry {
   startedAt          DateTime?
   completedAt        DateTime?
   cancelledAt        DateTime?
+  // Set by both cancelByStaff and cancelByPublicToken — there is no
+  // separate column recording *which* path cancelled an entry (Phase 11,
+  // G-14's "abandonment" metric counts every CANCELLED status the same
+  // way as a result; a future split would need a new column, not a
+  // schema change to this one).
   cancellationReason String?
 
   // Notification thresholds fired at most once per entry (G-31, Phase 7) —

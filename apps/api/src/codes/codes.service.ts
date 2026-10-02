@@ -44,8 +44,20 @@ export class CodesService {
   }
 
   async listGeneral(tenantId: string): Promise<CodeSummary[]> {
-    const codes = await this.prisma.code.findMany({ where: { tenantId, contextType: "GENERAL" } });
+    const codes = await this.prisma.code.findMany({
+      where: { tenantId, contextType: "GENERAL" },
+      orderBy: { createdAt: "desc" },
+    });
     return codes.map(toCodeSummary);
+  }
+
+  /** Rotation (Phase 11, same precedent as DISPLAY/CUSTOMER_IDENTITY): deactivates every currently-active GENERAL code for this tenant, then mints one fresh — never reuses a publicCode. */
+  async regenerateGeneral(tenantId: string): Promise<CodeSummary> {
+    await this.prisma.code.updateMany({
+      where: { tenantId, contextType: "GENERAL", active: true },
+      data: { active: false },
+    });
+    return this.mintCode({ tenantId, contextType: "GENERAL" });
   }
 
   async deactivateGeneral(tenantId: string, codeId: string): Promise<void> {
@@ -198,14 +210,18 @@ function notFoundCode(): NotFoundException {
 }
 
 function toCodeSummary(code: {
+  id: string;
   publicCode: string;
   contextType: CodeSummary["contextType"];
+  active: boolean;
   queueId: string | null;
   customerId: string | null;
 }): CodeSummary {
   return {
+    id: code.id,
     publicCode: code.publicCode,
     contextType: code.contextType,
+    active: code.active,
     queueId: code.queueId,
     customerId: code.customerId,
   };

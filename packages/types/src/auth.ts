@@ -61,6 +61,14 @@ export interface InviteSummary {
   revokedAt: string | null;
 }
 
+/** The tenant's current staff roster (Phase 11) — read-only here; role changes and removal aren't built (not a resolved requirement), only invite/revoke-the-invite. */
+export interface TenantMemberSummary {
+  tenantUserId: string;
+  displayName: string;
+  email: string;
+  role: TenantRole;
+}
+
 /**
  * Shared counter-tablet trust + PIN switching (D-03a). "Trust this device"
  * (an already-logged-in staff member opts in) returns a `TrustDeviceResponse`;

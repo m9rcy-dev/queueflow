@@ -312,13 +312,70 @@ scanner page and guest-card panel. 185 unit + 63 integration tests, `pnpm qualit
 
 ### Phase 11 — Business Administration
 
+**Status: ✅ Done** (2026-10-02)
+
 QR/code management screens, service/staff/location management UI, business hours, notification
 settings, the live "today" dashboard (queue length, average wait, served count — G-14's formulas;
-**not** the deferred historical-trend analytics). PWA manifest + service worker (ADR-010) — including
-Web Push as an SMS-cost offset for installed, signed-up customers.
+**not** the deferred historical-trend analytics). PWA manifest + service worker (ADR-010).
+
+Almost entirely a frontend phase — every CRUD operation already had a backend endpoint from Phases
+1–3 (locations/services/queues/invites/capabilities), so this phase's own backend work was small and
+targeted:
+
+- **`GET /tenants/me/staff`** (new) — the current staff roster, read-only (role changes and removing
+  an existing member were never a resolved requirement, only invite + revoke-the-invite; see Known
+  Issues).
+- **`GET /tenants/me/queues/:queueId/stats/today`** (new, G-14) — scoped to the location's local
+  service-day (the same boundary the ticket counter itself resets on), not a rolling 24h window.
+  `waitingCount` is live; `servedCount`/`abandonedCount`/`noShowCount` and the two averages
+  (`calledAt − joinedAt`, `completedAt − startedAt`) are computed over today's entries only. Averages
+  are `null`, not `0`, when there's no data yet — a dashboard showing "0 min average wait" before
+  anyone's been called would be actively misleading. "Abandonment" doesn't distinguish
+  customer-initiated from staff-initiated `CANCELLED` — there's no column recording which path
+  cancelled an entry (see the schema comment on `QueueEntry.cancellationReason`); every `CANCELLED`
+  counts the same way.
+- **`POST /tenants/me/codes/regenerate`** (new) — rotation for the GENERAL "sign up here" poster,
+  same deactivate-old-mint-new precedent as DISPLAY (Phase 6) and `CUSTOMER_IDENTITY` (Phase 9); Phase
+  9 had only shipped `createGeneral` (always mints a fresh code, several can coexist on purpose — one
+  per location's poster) with no rotation story for "this one specific poster leaked."
+- **`CodeSummary` widened** to include `id` and `active` — neither was exposed before, but a
+  staff-facing code-listing screen needs both (to target a specific code for deactivation, and to
+  tell past codes apart from the currently-usable one). Purely additive; nothing existing broke.
+
+Frontend: `/admin/locations` (list + create) and `/admin/locations/[id]` (edit fields, a business-hours
+editor — one open period per day, the common case; a day already configured with multiple split
+periods via the raw API would need to stay that way via the API too, full-replace semantics mean the
+UI can't preserve a second period it doesn't represent — and a nested services list with inline
+activate/deactivate); `/admin/staff` (invite, pending-invite list + revoke, and the roster);
+`/admin/settings` (tenant capability toggles, the GENERAL poster code with regenerate);
+`/admin/queues/[id]/settings` (a Status control — Active/Pause/Close, added after manual verification
+surfaced that the existing `PATCH .../status` endpoint from Phase 3 had no staff-facing UI anywhere —
+plus the config form, service attach, and QUEUE/DISPLAY code mint/deactivate); the queue dashboard
+gained a live stats bar and nav links. **Deliberate UX change**:
+`/admin/queues` no longer auto-redirects past a lone queue (Phase 5's original "skip the picker in the
+common case" shortcut) — it has to stay reachable and show the "+ New queue" affordance even when
+there's only one today, since this is now also how a second queue gets created.
+
+PWA: a hand-rolled `public/sw.js` (no `next-pwa` dependency) that only intercepts same-origin GET
+requests — the API lives on a different origin (`NEXT_PUBLIC_API_URL`) and is never touched, so live
+queue state, SSE streams, and customer/staff data are never risked being served stale from a cache;
+this only helps the app _shell_ reopen (and register as installable) when briefly offline. Manifest +
+three generated PNG icons (a simple brand mark, `PIL` since no image tooling was already a
+dependency). **Web Push was explicitly descoped** from this phase despite being named in the roadmap
+prose — it's real, separate work (VAPID keys, a subscription-storage endpoint, wiring
+`NotificationsService` to an actual push-send library), and the phase's own stated acceptance
+criterion only requires installability, not push delivery; tracked in Known Issues, not silently
+dropped.
 
 **Acceptance:** a business can configure the complete MVP without database access; the app installs
-as a PWA on a tablet or desktop.
+as a PWA on a tablet or desktop. Verified via a dedicated integration suite (7 tests: the staff roster
+including role-gating, GENERAL code regeneration, and the live dashboard's stats computed from a real
+join → call → complete / call → no-show / cancel-while-waiting flow, plus the null-averages and
+cross-tenant-404 cases) plus targeted unit tests for the two new service methods, a manual curl-driven
+run of every new/changed endpoint, and a real-browser (Playwright) run of the entire new admin surface
+end to end (create a location, set hours, add a service, create a queue, configure it, mint and
+deactivate codes, invite and revoke staff, toggle capabilities, regenerate the poster code, confirm
+the manifest/icons/service-worker). 192 unit + 70 integration tests, `pnpm quality` green.
 
 ### Phase 12 — Hardening
 
@@ -368,6 +425,6 @@ start from nothing:
 
 ## Count, for reference
 
-**13 phases in the active roadmap (0–12).** Phases 0–3 done, 9 remain. Plus 5 explicitly deferred
+**13 phases in the active roadmap (0–12).** Phases 0–11 done, 1 remains. Plus 5 explicitly deferred
 workstreams (appointments, analytics trends, platform admin, billing, flash-crowd/waiting-room
 queuing) tracked but not scheduled.

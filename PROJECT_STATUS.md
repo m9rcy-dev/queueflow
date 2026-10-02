@@ -1,7 +1,7 @@
 # Project Status
 
-Last Updated: 2026-09-30
-Current Phase: Phase 11 — Business Administration (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–10 done)
+Last Updated: 2026-10-02
+Current Phase: Phase 12 — Hardening (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–11 done)
 Current Task: See Next Task below
 
 ## Completed
@@ -110,6 +110,15 @@ Current Task: See Next Task below
 - Tests: new `guest-cards.service.spec.ts` (8) + `queue-entries.service.spec.ts` additions (joinByScan + guest-card release, 13 new) + `codes.service.spec.ts` additions (3 new) → 185 total unit; new `guest-cards.integration-spec.ts` (10 tests) → 63 total integration. `pnpm quality` green end to end.
 - Manual verification: full curl-driven run of the whole flow (pool resize incl. the shrink-then-regrow bug found live, guest-card scan + idempotent re-scan + auto-release + recycling, customer-identity scan, cross-location/single-service/cross-tenant rejections, staff-assisted cancel) against a real Postgres, plus a real-browser (Playwright) run of the scanner page and guest-card panel.
 
+### Phase 11 — Business Administration
+
+- Almost entirely a frontend phase — every CRUD operation already had a backend endpoint from Phases 1–3; only three small, new backend pieces: `GET /tenants/me/staff` (the roster, read-only), `GET /tenants/me/queues/:queueId/stats/today` (G-14's live dashboard — `null` not `0` when there's no data yet today), and `POST /tenants/me/codes/regenerate` (rotation for the GENERAL poster, same precedent as DISPLAY/`CUSTOMER_IDENTITY`). `CodeSummary` widened to include `id`/`active` (purely additive) so a staff-facing code list can target a specific code and tell past codes apart from the current one.
+- Frontend: `/admin/locations` (+ `[id]` detail: edit fields, a one-period-per-day business-hours editor, nested services with inline activate/deactivate), `/admin/staff` (invite/revoke/roster), `/admin/settings` (capability toggles, GENERAL poster + regenerate), `/admin/queues/[id]/settings` (an Active/Pause/Close status control — added after live verification found Phase 3's `PATCH .../status` endpoint had no UI anywhere — plus queue config, service attach, QUEUE/DISPLAY code mint/deactivate), a live stats bar on the queue dashboard, and a shared `AdminNav`.
+- **Deliberate UX change**: `/admin/queues` no longer auto-redirects past a lone queue (Phase 5's shortcut) — it has to stay reachable with a "+ New queue" affordance for adding a second one.
+- PWA: hand-rolled `public/sw.js` (no `next-pwa` dep) that only touches same-origin GET requests — the API's different origin is never cached, so live queue/SSE data can't go stale. Manifest + 3 generated PNG icons (PIL, no new runtime dependency). **Web Push explicitly descoped** despite being named in the roadmap prose — real separate work (VAPID keys, subscription storage, wiring `NotificationsService` to a push-send library); the phase's actual acceptance criterion only needs installability.
+- Tests: 2 new unit (`tenants.service.spec.ts`) + 4 new (`getTodayStats` in `queue-entries.service.spec.ts`) → 192 total unit; new `business-admin.integration-spec.ts` (7 tests) → 70 total integration. `pnpm quality` green end to end.
+- Manual verification: full curl-driven run of every new/changed endpoint against a real Postgres, plus a real-browser (Playwright) run of the entire new admin surface (location+hours+service creation, queue creation+config+codes, staff invite/revoke, capability toggles, poster regeneration, manifest/icons/service-worker).
+
 ## Decisions Made
 
 See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
@@ -125,18 +134,21 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 - SSE realtime is in-process (`EventEmitter`) only — correct for single-instance (D-06), but will need a Redis pub/sub swap before horizontal scaling or the future high-volume "flash crowd" workstream (see `docs/roadmap.md`'s future-enhancements section).
 - Testcontainers' Ryuk reaper sidecar hangs in this sandboxed Docker dev environment; `apps/api`'s `test:integration` script sets `TESTCONTAINERS_RYUK_DISABLED=true` to work around it (see `test/jest-integration.config.js` for the full explanation). Not an application bug — purely an environment quirk of this Docker setup.
 - The staff dashboard polls every 3s rather than using SSE — deliberate for MVP simplicity (EventSource can't attach an Authorization header, and a query-string token is a security smell not worth taking on this phase); fine at current staff-tablet counts, worth revisiting if multi-tablet live sync becomes a real complaint.
-- No staff-facing UI yet for creating/managing locations, services, queues, or most codes (QUEUE/DISPLAY/GENERAL) — Phase 5/6/9's work assumes these already exist (created via curl/API in this session's manual testing). The one exception is Phase 10's guest-card pool, which does have a dashboard panel. This is exactly Phase 11's (Business Administration) job.
 - No display-picker UI — a business owner points the TV's browser at the specific `/display/{code}` URL directly (bookmarked once). Fine for one screen per location (D-10); would need a picker if a business ever wants several distinct boards.
 - Notification processing is fire-and-forget in-process, not a real background worker/queue — correct for MVP scale (ADR-008 describes "a background worker sends it," which this satisfies in spirit: never blocks the request), but a genuinely down/slow provider only gets retried on the _next_ queue mutation to the same entry, not on a timer. Revisit once Phase 8's real provider makes actual failures a real possibility, not just a simulated test.
-- No staff-facing UI to configure `approachingThreshold`/`nearlyNextThreshold` per queue — set via `PATCH /tenants/me/queues/:id` today (already wired through), no dashboard control for it yet. Same "no business-admin UI" gap as other queue config (see above).
+- Staff roster (Phase 11, `GET /tenants/me/staff`) is read-only — changing an existing member's role or removing them isn't built (never a resolved requirement in `plan-review.md`); only invite + revoke-the-invite.
+- The business-hours editor (Phase 11) supports exactly one open period per day — the common case, and full-replace semantics mean it can't represent (or safely preserve) a day a business already configured with two split periods via the raw API. That business would need to keep editing hours via the API, not the UI, until a future pass adds multi-period support.
+- Web Push (ADR-010's SMS-cost-offset idea for installed, signed-up customers) is not built — Phase 11 shipped PWA installability (manifest + a minimal same-origin-only service worker) but not actual push delivery, which needs VAPID keys, a subscription-storage endpoint, and wiring `NotificationsService` to a push-send library. Real, separate work; the phase's stated acceptance criterion only required installability.
 
 ## Next Task
 
-**Phase 11 — Business Administration**, per `docs/roadmap.md`:
+**Phase 12 — Hardening** (the final scheduled phase), per `docs/roadmap.md`:
 
-1. QR/code management screens — staff-facing UI for creating/listing/deactivating QUEUE, DISPLAY, and GENERAL codes (all currently curl/API-only, see Known Issues).
-2. Service/staff/location management UI, and business hours — the same "curl-only today" gap for locations/services/queues.
-3. Notification settings, and the live "today" dashboard (queue length, average wait, served count — G-14's formulas; **not** the deferred historical-trend analytics).
-4. PWA manifest + service worker (ADR-010) — including Web Push as an SMS-cost offset for installed, signed-up customers.
+1. Concrete rate-limit numbers in place everywhere (G-38) — including the Redis/Upstash-backed network-level limiting already flagged as deferred above, for horizontal-scale/multi-instance deployments.
+2. Token entropy audit (G-39) — a deliberate review of every token/code generation scheme built across all 11 phases (OTP codes, refresh tokens, device-trust tokens, public codes, secure tokens), not new code.
+3. Secrets/log redaction (G-41), dependency scanning.
+4. Backup/restore actually tested against real data — a real exercise, not a design document.
+5. Accessibility pass (WCAG AA per plan §55).
+6. Retention/deletion job running (90-day PII purge, G-37) — the first actual background job/scheduler in the project (see Known Issues: none exists yet).
 
-Acceptance (per roadmap): a business can configure the complete MVP without database access; the app installs as a PWA on a tablet or desktop.
+Acceptance (per roadmap): security tests pass; a restore has actually been performed once; production readiness checklist complete for a real pilot business.

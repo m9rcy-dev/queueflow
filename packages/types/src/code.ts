@@ -9,8 +9,12 @@
 export type CodeContextType = "QUEUE" | "DISPLAY" | "GENERAL" | "CUSTOMER_IDENTITY" | "GUEST_CARD";
 
 export interface CodeSummary {
+  /** Phase 11 — needed so a staff-facing listing can target a specific code for deactivation (deactivateCode/deactivateGeneralCode take this, not publicCode). */
+  id: string;
   publicCode: string;
   contextType: CodeContextType;
+  /** Listing endpoints (listForQueue/listGeneral) return every code ever minted, not just currently-usable ones — a staff UI needs this to tell them apart (Phase 11). */
+  active: boolean;
   /** Only set for QUEUE codes. */
   queueId: string | null;
   /** Only set for CUSTOMER_IDENTITY codes. */
