@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button, Card } from "@queueflow/ui";
-import type { CodeSummary, TenantSummary } from "@queueflow/types";
+import { useEffect, useState, type FormEvent } from "react";
+import { Button, Card, Input } from "@queueflow/ui";
+import { ApiError } from "@queueflow/api-client";
+import type { AppointmentSettings, CodeSummary, TenantSummary } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
 import { AdminNav } from "../../../components/AdminNav";
@@ -88,6 +89,8 @@ export default function SettingsPage() {
         </label>
       </Card>
 
+      {tenant.appointmentEnabled && <AppointmentSettingsCard />}
+
       <Card className="flex flex-col items-center gap-4">
         <h2 className="self-start text-sm font-medium uppercase tracking-wide text-text-secondary">
           Customer sign-up poster
@@ -136,5 +139,90 @@ export default function SettingsPage() {
         )}
       </Card>
     </main>
+  );
+}
+
+const SETTING_FIELDS: Array<{ key: keyof AppointmentSettings; label: string; min: number }> = [
+  { key: "slotIntervalMinutes", label: "Offer a start time every (minutes)", min: 5 },
+  { key: "bufferMinutes", label: "Gap after each appointment (minutes)", min: 0 },
+  { key: "minLeadMinutes", label: "Earliest booking, from now (minutes)", min: 0 },
+  { key: "advanceDays", label: "Furthest booking ahead (days)", min: 0 },
+  {
+    key: "cancelNoticeMinutes",
+    label: "Customers can cancel online until (minutes before)",
+    min: 0,
+  },
+];
+
+/** Tenant-wide slot rules (Phase 13, G-22/ADR-012) — only shown once the Appointments capability is on. */
+function AppointmentSettingsCard() {
+  const [values, setValues] = useState<Record<keyof AppointmentSettings, string> | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    staffApi.getAppointmentSettings().then((settings) => {
+      setValues({
+        slotIntervalMinutes: String(settings.slotIntervalMinutes),
+        bufferMinutes: String(settings.bufferMinutes),
+        minLeadMinutes: String(settings.minLeadMinutes),
+        advanceDays: String(settings.advanceDays),
+        cancelNoticeMinutes: String(settings.cancelNoticeMinutes),
+      });
+    });
+  }, []);
+
+  async function handleSave(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    if (!values) return;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      await staffApi.updateAppointmentSettings({
+        slotIntervalMinutes: Number(values.slotIntervalMinutes),
+        bufferMinutes: Number(values.bufferMinutes),
+        minLeadMinutes: Number(values.minLeadMinutes),
+        advanceDays: Number(values.advanceDays),
+        cancelNoticeMinutes: Number(values.cancelNoticeMinutes),
+      });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">
+        Appointment rules
+      </h2>
+      <p className="text-sm text-text-secondary">
+        Applies to every location. Mark services as bookable on each location&apos;s page.
+      </p>
+      {values && (
+        <form onSubmit={handleSave} className="flex flex-col gap-3">
+          {SETTING_FIELDS.map((field) => (
+            <Input
+              key={field.key}
+              label={field.label}
+              type="number"
+              min={field.min}
+              value={values[field.key]}
+              onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
+              required
+            />
+          ))}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          {saved && <p className="text-sm text-green-700">Saved.</p>}
+          <Button type="submit" variant="secondary" disabled={saving} className="self-start">
+            {saving ? "Saving…" : "Save appointment rules"}
+          </Button>
+        </form>
+      )}
+    </Card>
   );
 }

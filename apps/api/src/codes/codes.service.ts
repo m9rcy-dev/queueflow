@@ -164,12 +164,25 @@ export class CodesService {
 
     if (code.contextType === "QUEUE") {
       if (!code.queue) throw notFoundCode();
+      // Phase 13: the same poster also offers booking when the tenant has
+      // the Appointment capability on and this location has something
+      // bookable — "a customer's phone scanning QUEUE shows join/book
+      // options" (§4.5).
+      const appointmentServices = code.queue.tenant.appointmentEnabled
+        ? await this.prisma.service.findMany({
+            where: { locationId: code.queue.locationId, active: true, appointmentEnabled: true },
+            orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+            select: { id: true, name: true, durationMinutes: true },
+          })
+        : [];
       return {
         contextType: "QUEUE",
         tenant: { name: code.queue.tenant.name },
-        location: { name: code.queue.location.name },
+        location: { id: code.queue.location.id, name: code.queue.location.name },
         queue: { id: code.queue.id, name: code.queue.name, status: code.queue.status },
-        capabilities: ["JOIN_QUEUE"],
+        capabilities:
+          appointmentServices.length > 0 ? ["JOIN_QUEUE", "BOOK_APPOINTMENT"] : ["JOIN_QUEUE"],
+        appointmentServices,
         // Only what a customer can actually join right now — not the whole catalog (plan §13.4).
         services: code.queue.queueServices
           .map((qs) => qs.service)

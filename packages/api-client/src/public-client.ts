@@ -1,5 +1,12 @@
-import type { CodeResolution, JoinQueueResponse, QueueEntrySummary } from "@queueflow/types";
-import type { JoinQueueInput } from "@queueflow/validation";
+import type {
+  AppointmentAvailability,
+  BookAppointmentResponse,
+  CodeResolution,
+  JoinQueueResponse,
+  PublicAppointmentSummary,
+  QueueEntrySummary,
+} from "@queueflow/types";
+import type { BookAppointmentInput, JoinQueueInput } from "@queueflow/validation";
 import { ApiError } from "./errors";
 
 /**
@@ -18,6 +25,18 @@ export interface PublicApiClient {
   ticketEventsUrl(token: string): string;
   /** The public TV board's live feed (Phase 6, G-07) — same reasoning as ticketEventsUrl: a plain URL for an EventSource, not a fetch. */
   displayEventsUrl(code: string): string;
+  /** Phase 13 — bookable starts for one service on one location-local date (YYYY-MM-DD). */
+  getAppointmentAvailability(
+    locationId: string,
+    serviceId: string,
+    date: string,
+  ): Promise<AppointmentAvailability>;
+  bookAppointment(
+    locationId: string,
+    input: BookAppointmentInput,
+  ): Promise<BookAppointmentResponse>;
+  getAppointment(token: string): Promise<PublicAppointmentSummary>;
+  cancelAppointment(token: string): Promise<PublicAppointmentSummary>;
 }
 
 export function createPublicApiClient(baseUrl: string): PublicApiClient {
@@ -56,5 +75,17 @@ export function createPublicApiClient(baseUrl: string): PublicApiClient {
     ticketEventsUrl: (token) =>
       `${baseUrl}/public/queue-entries/${encodeURIComponent(token)}/events`,
     displayEventsUrl: (code) => `${baseUrl}/public/displays/${encodeURIComponent(code)}/events`,
+    getAppointmentAvailability: (locationId, serviceId, date) =>
+      request(
+        `/public/locations/${encodeURIComponent(locationId)}/appointment-availability?${new URLSearchParams({ serviceId, date })}`,
+      ),
+    bookAppointment: (locationId, input) =>
+      request(`/public/locations/${encodeURIComponent(locationId)}/appointments`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    getAppointment: (token) => request(`/public/appointments/${encodeURIComponent(token)}`),
+    cancelAppointment: (token) =>
+      request(`/public/appointments/${encodeURIComponent(token)}/cancel`, { method: "POST" }),
   };
 }

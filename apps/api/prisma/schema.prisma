@@ -47,6 +47,17 @@ model Tenant {
   queueEnabled       Boolean @default(true)
   appointmentEnabled Boolean @default(false)
 
+  // Appointment slot grid (Phase 13, G-22/ADR-012) — tenant-wide, per plan
+  // §70's "Appointments" settings. Slot starts step by the interval from
+  // each open period's opening time; the buffer is turnaround occupied
+  // after each booking; lead time and advance window bound which slots are
+  // offered at all; cancel notice is the customer self-cancel cut-off (§76).
+  appointmentSlotIntervalMinutes Int @default(15)
+  appointmentBufferMinutes       Int @default(0)
+  appointmentMinLeadMinutes      Int @default(60)
+  appointmentAdvanceDays         Int @default(30)
+  appointmentCancelNoticeMinutes Int @default(120)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -61,6 +72,7 @@ model Tenant {
   codes         Code[]
   deviceTrusts  DeviceTrust[]
   notifications NotificationOutbox[]
+  appointments  Appointment[]
 
   @@map("tenants")
 }
@@ -95,7 +107,9 @@ model TenantUser {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  assignedQueueEntries QueueEntry[]
+  assignedQueueEntries  QueueEntry[]
+  bookedAppointments    Appointment[] @relation("AppointmentBookedBy")
+  cancelledAppointments Appointment[] @relation("AppointmentCancelledBy")
 
   @@unique([tenantId, userId])
   @@index([userId])
@@ -213,8 +227,16 @@ model Location {
   // queue per location, where the per-queue cap on Queue already governs).
   maxActiveTicketsPerCustomer Int @default(2)
 
-  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Appointment pool (Phase 13, G-23/ADR-012) — how many appointments may
+  // overlap at this location at once (customers never pick staff), and an
+  // optional per-day ceiling (G-26's overbooking answer; null = no cap).
+  appointmentCapacity   Int  @default(1)
+  maxAppointmentsPerDay Int?
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   businessHours BusinessHours[]
+  closures      LocationClosure[]
+  appointments  Appointment[]
   services      Service[]
   queues        Queue[]
   // GUEST_CARD codes only (Phase 10, D-14) — the location's physical card pool.
@@ -241,6 +263,28 @@ model BusinessHours {
   @@map("business_hours")
 }
 
+// A date-specific closure (Phase 13, G-24/ADR-012) — holidays, or a
+// partial-day block (a break, a staff meeting) when startMinutes/
+// endMinutes are set. Always wins over BusinessHours. Only consulted by
+// appointment slot generation today; the walk-in queue is still opened and
+// closed by staff (G-16).
+model LocationClosure {
+  id           String   @id @default(uuid())
+  locationId   String
+  // Location-local calendar date.
+  date         DateTime @db.Date
+  // Both null = closed all day; otherwise a [start, end) local-minute range.
+  startMinutes Int?
+  endMinutes   Int?
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([locationId, date])
+  @@map("location_closures")
+}
+
 model Service {
   id                 String   @id @default(uuid())
   tenantId           String
@@ -263,6 +307,7 @@ model Service {
 
   queueServices QueueService[]
   queueEntries  QueueEntry[]
+  appointments  Appointment[]
 
   @@index([tenantId])
   @@index([locationId])
@@ -298,6 +343,7 @@ model Customer {
   tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   entries       QueueEntry[]
   codes         Code[]
+  appointments  Appointment[]
   loginCodes    CustomerLoginCode[]
   refreshTokens CustomerRefreshToken[]
 
@@ -527,6 +573,9 @@ enum NotificationType {
   NEARLY_NEXT
   CALLED
   RECALLED
+  // Phase 13 — subject is an Appointment, not a QueueEntry.
+  APPOINTMENT_BOOKED
+  APPOINTMENT_CANCELLED
 }
 
 enum NotificationChannel {
@@ -540,29 +589,35 @@ enum NotificationOutboxStatus {
 }
 
 model NotificationOutbox {
-  id           String                   @id @default(uuid())
-  tenantId     String
-  queueEntryId String
-  type         NotificationType
-  channel      NotificationChannel
+  id            String                   @id @default(uuid())
+  tenantId      String
+  // Exactly one of these is set (Phase 13 made the outbox subject either a
+  // queue entry or an appointment) — enforced by NotificationsService.enqueue
+  // callers, not a DB CHECK, same convention as Queue's thresholds.
+  queueEntryId  String?
+  appointmentId String?
+  type          NotificationType
+  channel       NotificationChannel
   // Phone (E.164) or email — resolved and fixed at enqueue time, not
   // re-derived from the customer at send time (the customer's own contact
   // details could change in between; the outbox row is what was promised).
-  recipient    String
+  recipient     String
   // Finalized message text at enqueue time — an outbox row is a concrete
   // thing to send, not a template reference that copy changes could alter
   // after the fact.
-  body         String
-  status       NotificationOutboxStatus @default(PENDING)
+  body          String
+  status        NotificationOutboxStatus @default(PENDING)
 
   createdAt DateTime  @default(now())
   sentAt    DateTime?
 
-  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  queueEntry QueueEntry @relation(fields: [queueEntryId], references: [id], onDelete: Cascade)
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queueEntry  QueueEntry?  @relation(fields: [queueEntryId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([queueEntryId])
+  @@index([appointmentId])
   @@map("notification_outbox")
 }
 
@@ -646,4 +701,81 @@ model Code {
   @@index([customerId])
   @@index([locationId])
   @@map("codes")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 13 (Appointment Engine, ADR-012) — future-dated bookings against a
+// location's pooled capacity. Check-in (APPOINTMENT_TICKET, conversion into
+// a QueueEntry, the G-25 priority rule) is Phase 14, which also adds the
+// CHECKED_IN/NO_SHOW states — only the states something can reach today
+// exist here.
+// ---------------------------------------------------------------------------
+
+enum AppointmentStatus {
+  BOOKED
+  CANCELLED
+}
+
+// The required cancel reason (plan-review §5.5's calendar requirement) —
+// an enum rather than free text so cancellation causes can be told apart
+// later; `cancellationNote` carries anything more specific.
+enum AppointmentCancellationReason {
+  CUSTOMER_REQUESTED
+  BUSINESS_INITIATED
+  NO_AVAILABILITY
+  BUSINESS_CLOSURE
+  OTHER
+}
+
+model Appointment {
+  id         String @id @default(uuid())
+  tenantId   String
+  locationId String
+  serviceId  String
+  customerId String
+
+  // Secret (G-39/G-45) — the anonymous booker's only handle to view or
+  // cancel their own appointment, same as queue_entry.publicToken.
+  publicToken String @unique
+
+  startsAt      DateTime
+  // startsAt + service duration — what the customer is told.
+  endsAt        DateTime
+  // endsAt + the tenant's buffer at booking time — what capacity checks
+  // use. Stored, not recomputed, so changing the buffer setting later never
+  // retroactively shifts an existing booking's footprint (ADR-012).
+  occupiedUntil DateTime
+  // The location-local calendar date of startsAt — the calendar groups by
+  // this, and the booking lock re-reads a whole day by it.
+  localDate     DateTime @db.Date
+
+  status AppointmentStatus @default(BOOKED)
+
+  // G-21 pattern — unique only when supplied.
+  idempotencyKey String?
+
+  // Audit (D-03a): set when staff booked it on the customer's behalf (a
+  // phone booking) rather than the customer booking it themselves.
+  bookedByStaffId    String?
+  cancelledAt        DateTime?
+  cancellationReason AppointmentCancellationReason?
+  cancellationNote   String?
+  // Null with a cancellation means the customer cancelled it themselves.
+  cancelledByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location      Location             @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  service       Service              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customer      Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bookedByStaff TenantUser?          @relation("AppointmentBookedBy", fields: [bookedByStaffId], references: [id], onDelete: SetNull)
+  cancelledBy   TenantUser?          @relation("AppointmentCancelledBy", fields: [cancelledByStaffId], references: [id], onDelete: SetNull)
+  notifications NotificationOutbox[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([locationId, localDate, status])
+  @@index([customerId])
+  @@map("appointments")
 }

@@ -3,6 +3,10 @@ export interface LocationSummary {
   name: string;
   address: string | null;
   timezone: string;
+  /** Appointment pool size (Phase 13, G-23) — how many bookings may overlap at once. */
+  appointmentCapacity: number;
+  /** Per-day booking ceiling (G-26); null = no cap. */
+  maxAppointmentsPerDay: number | null;
 }
 
 /** One open period. A day with split hours has two entries with the same dayOfWeek (plan §39). */

@@ -5,14 +5,16 @@ import { EmailProvider } from "./email-provider";
 import { SmsProvider } from "./sms-provider";
 import { buildEmailSubject } from "./notification-copy";
 
-export interface EnqueueNotificationParams {
+/** Exactly one subject — a queue entry, or (Phase 13) an appointment. */
+export type NotificationSubject = { queueEntryId: string } | { appointmentId: string };
+
+export type EnqueueNotificationParams = NotificationSubject & {
   tenantId: string;
-  queueEntryId: string;
   type: NotificationType;
   channel: NotificationChannel;
   recipient: string;
   body: string;
-}
+};
 
 const PROCESS_BATCH_LIMIT = 50;
 
@@ -37,7 +39,8 @@ export class NotificationsService {
     await tx.notificationOutbox.create({
       data: {
         tenantId: params.tenantId,
-        queueEntryId: params.queueEntryId,
+        queueEntryId: "queueEntryId" in params ? params.queueEntryId : null,
+        appointmentId: "appointmentId" in params ? params.appointmentId : null,
         type: params.type,
         channel: params.channel,
         recipient: params.recipient,

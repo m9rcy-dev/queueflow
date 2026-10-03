@@ -36,11 +36,48 @@ export function buildRecalledMessage(params: {
   return `${params.businessName}: reminder — ticket #${params.ticketNumber} is still being called. Please proceed to the counter now.`;
 }
 
+/**
+ * "Tue 10 Nov, 9:00 am" in the location's own timezone — never the
+ * server's, and never UTC (an appointment time is meaningless to a
+ * customer in anything but the business's local clock).
+ */
+export function formatAppointmentTime(startsAt: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-NZ", {
+    timeZone: timezone,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(startsAt);
+}
+
+export function buildAppointmentBookedMessage(params: {
+  businessName: string;
+  serviceName: string;
+  when: string;
+  manageUrl: string;
+}): string {
+  return `${params.businessName}: your ${params.serviceName} appointment is booked for ${params.when}. View or cancel: ${params.manageUrl}`;
+}
+
+export function buildAppointmentCancelledMessage(params: {
+  businessName: string;
+  serviceName: string;
+  when: string;
+  cancelledByBusiness: boolean;
+}): string {
+  const who = params.cancelledByBusiness ? " by the business" : "";
+  return `${params.businessName}: your ${params.serviceName} appointment for ${params.when} has been cancelled${who}.`;
+}
+
 const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   APPROACHING: "You're approaching in line",
   NEARLY_NEXT: "You're almost up!",
   CALLED: "It's your turn!",
   RECALLED: "Reminder: it's your turn",
+  APPOINTMENT_BOOKED: "Your appointment is booked",
+  APPOINTMENT_CANCELLED: "Your appointment has been cancelled",
 };
 
 /** Only meaningful for the EMAIL channel — SMS has no subject line. */

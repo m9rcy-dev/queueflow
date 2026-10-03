@@ -35,7 +35,7 @@ describe("Customer accounts & portal (integration)", () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    await app.init();
+    await app.listen(0); // one bound port per suite — see jest-integration.config.js
   });
 
   afterAll(async () => {

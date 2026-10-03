@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PassportModule } from "@nestjs/passport";
+import { AppointmentsModule } from "../appointments/appointments.module";
 import { AuthModule } from "../auth/auth.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { CustomersModule } from "../customers/customers.module";
@@ -17,7 +18,7 @@ import { CustomerPortalController } from "./customer-portal.controller";
  * CustomersService, never the reverse).
  */
 @Module({
-  imports: [PassportModule, AuthModule, NotificationsModule, CustomersModule],
+  imports: [PassportModule, AuthModule, NotificationsModule, CustomersModule, AppointmentsModule],
   controllers: [CustomerAuthController, CustomerPortalController],
   providers: [CustomerAuthService, CustomerJwtStrategy, CustomerJwtAuthGuard],
 })

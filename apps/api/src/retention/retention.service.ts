@@ -55,6 +55,14 @@ export class RetentionService {
           WHERE qe2."customerId" = c.id
             AND qe2.status IN ('WAITING', 'CALLED', 'SERVING')
         )
+        AND NOT EXISTS (
+          -- Phase 13: same safety condition for a booking still ahead —
+          -- anonymizing would orphan its cancellation/notification contact.
+          SELECT 1 FROM appointments a
+          WHERE a."customerId" = c.id
+            AND a.status = 'BOOKED'
+            AND a."startsAt" > NOW()
+        )
     `;
 
     const anonymizedCustomerIds: string[] = [];

@@ -46,7 +46,7 @@ describe("Queue domain (integration)", () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    await app.init();
+    await app.listen(0); // one bound port per suite — see jest-integration.config.js
     // The concurrency test below fires a dozen-plus genuinely parallel
     // connections at once — harmless, but past Node's default per-emitter
     // listener cap, which otherwise logs a spurious leak warning.

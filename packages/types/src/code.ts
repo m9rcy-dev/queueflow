@@ -4,7 +4,7 @@
  * G-07), GENERAL (the tenant-only "sign up here" poster, D-10),
  * CUSTOMER_IDENTITY (a customer's own persistent "loyalty card" code,
  * G-52), and GUEST_CARD (a location's numbered, anonymous card pool,
- * D-14). APPOINTMENT_TICKET is Phase C's job; do not add it here early.
+ * D-14). APPOINTMENT_TICKET is Phase 14's job; do not add it here early.
  */
 export type CodeContextType = "QUEUE" | "DISPLAY" | "GENERAL" | "CUSTOMER_IDENTITY" | "GUEST_CARD";
 
@@ -40,11 +40,14 @@ export interface GuestCardSummary {
 export interface QueueCodeResolution {
   contextType: "QUEUE";
   tenant: { name: string };
-  location: { name: string };
+  location: { id: string; name: string };
   queue: { id: string; name: string; status: "ACTIVE" | "PAUSED" | "CLOSED" };
-  capabilities: ["JOIN_QUEUE"];
+  /** BOOK_APPOINTMENT appears only when the tenant has appointments on and this location has at least one bookable service (Phase 13). */
+  capabilities: Array<"JOIN_QUEUE" | "BOOK_APPOINTMENT">;
   /** Only services this queue actually accepts right now (active + queueEnabled) — never the full catalog. */
   services: Array<{ id: string; name: string; durationMinutes: number }>;
+  /** Active, appointment-enabled services at this queue's location — empty unless BOOK_APPOINTMENT is offered. */
+  appointmentServices: Array<{ id: string; name: string; durationMinutes: number }>;
 }
 
 /** What a customer sees after scanning a GENERAL "sign up here" poster (Phase 9, D-10) — just enough to reach the signup/login form. */

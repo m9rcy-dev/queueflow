@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ScheduleModule } from "@nestjs/schedule";
 import { ThrottlerModule } from "@nestjs/throttler";
+import { AppointmentsModule } from "./appointments/appointments.module";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
@@ -52,6 +53,7 @@ import { TenantsModule } from "./tenants/tenants.module";
     CustomersModule,
     CustomerAuthModule,
     GuestCardsModule,
+    AppointmentsModule,
     RetentionModule,
   ],
   providers: [

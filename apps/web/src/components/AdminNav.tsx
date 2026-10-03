@@ -4,6 +4,7 @@ import Link from "next/link";
 
 const LINKS = [
   { href: "/admin/queues", label: "Queues" },
+  { href: "/admin/appointments", label: "Appointments" },
   { href: "/admin/locations", label: "Locations" },
   { href: "/admin/staff", label: "Staff" },
   { href: "/admin/settings", label: "Settings" },
@@ -15,7 +16,11 @@ const LINKS = [
  * useStaffSession() auth-check timing (Phase 5) and a shared layout would
  * complicate that. `current` highlights which section the page belongs to.
  */
-export function AdminNav({ current }: { current: "queues" | "locations" | "staff" | "settings" }) {
+export function AdminNav({
+  current,
+}: {
+  current: "queues" | "appointments" | "locations" | "staff" | "settings";
+}) {
   return (
     <nav className="flex gap-4 border-b border-border pb-3 text-sm">
       {LINKS.map((link) => {

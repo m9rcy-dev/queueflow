@@ -440,9 +440,45 @@ checklist complete for a real pilot business. Met — see `PROJECT_STATUS.md` fo
 counts (217 unit + 77 integration), and what's explicitly still deferred (the Next.js major-version
 upgrade; a scheduled/automated backup job, as opposed to the manual procedure now proven to work).
 
-**This completes every phase in the authoritative 0–12 list.** What remains is genuinely deferred work
+**This completed the original 0–12 list.** Phases 13–14 below were added on 2026-10-03, when the
+user chose to build the appointment engine next. What remains is genuinely deferred work
 (see below) and whatever a real pilot business's actual usage surfaces — not anything already known
 and postponed within this list.
+
+---
+
+## Appointment phases (§4.5 Phase C, added 2026-10-03)
+
+The appointment engine came off the deferred list on 2026-10-03. Its open decisions (G-22/23/24/26)
+were resolved first, see ADR-012, then it was split in two so that each phase fits one session.
+
+### Phase 13 — Appointment Engine
+
+**Status: ✅ Done** (2026-10-03) — see `docs/status/phase-13.md`
+
+Tenant appointment settings (slot interval, buffer, min lead time, advance window, cancel notice);
+per-location pool capacity + daily cap; date closures (full or partial day); backend-authoritative
+slot generation (G-22, fixed grid, peak-overlap capacity check, DST-safe); public anonymous booking
+from a QUEUE code's landing page, with location-row-locked double-booking prevention and
+idempotency; a customer's manage page (secret token) with self-cancel inside the notice window;
+staff calendar (count per day for a month → day list) with cancel-with-reason; closures listing
+affected bookings; booked/cancelled notifications via the outbox; signed-up customers see upcoming
+appointments in their portal.
+
+**Acceptance:** concurrent bookings for the last unit of capacity yield exactly one success; slot
+generation unit-tested (grid, buffer, closures, capacity, lead time, window, daily cap, DST);
+cross-tenant isolation on every new staff endpoint; customer cancel blocked inside the notice
+window; `pnpm quality` green; both dev servers booted.
+
+### Phase 14 — Appointment Check-In & Mixed Queue
+
+**Status: Not started**
+
+`APPOINTMENT_TICKET` code (D-12) and check-in by staff, by link, or by scanner (same-day, same-location
+validation; idempotent per §78); `queue_entry.appointmentId`; the G-25 priority rule (a checked-in
+appointment sorts ahead of walk-ins from its start time minus a configurable window; the one
+deliberate exception to plain FIFO); no-show after a grace period (§77) and configurable reminders
+(§75), both on the existing `@nestjs/schedule` infrastructure (Phase 12's retention cron).
 
 ---
 
@@ -451,12 +487,8 @@ and postponed within this list.
 These are real, not forgotten — each has partial spec already captured so a future phase doesn't
 start from nothing:
 
-- **Appointment Engine + Appointment-Ticket Check-In** _(§4.5 Phase C, replaces the original plan's
-  Phase 9/10)_ — needs G-22 (slot generation), G-23 (optional-staff concurrency), G-24
-  (`staff_availability` semantics), and G-26's remaining items (reschedule, waitlist, holiday
-  interaction) resolved first. Partial spec already captured: business calendar with day-count
-  drill-down, cancel-with-reason, default max-appointments-per-day cap, per-tenant advance-booking
-  window (§5.5 addendum in `plan-review.md`).
+- ~~**Appointment Engine + Appointment-Ticket Check-In**~~ — scheduled as Phases 13–14 above
+  (2026-10-03).
 - **Historical analytics/trend reporting** (original plan Phase 11, beyond the live-today numbers
   already in Phase 11 above).
 - **`PLATFORM_ADMIN` console** (G-51) — no home until there's a real second tenant needing platform-
@@ -483,6 +515,6 @@ start from nothing:
 
 ## Count, for reference
 
-**13 phases in the active roadmap (0–12).** Phases 0–11 done, 1 remains. Plus 5 explicitly deferred
-workstreams (appointments, analytics trends, platform admin, billing, flash-crowd/waiting-room
+**15 phases in the active roadmap (0–14).** Phases 0–13 done; 14 remains. Plus 4
+explicitly deferred workstreams (analytics trends, platform admin, billing, flash-crowd/waiting-room
 queuing) tracked but not scheduled.

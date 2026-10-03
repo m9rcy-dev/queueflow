@@ -4,3 +4,4 @@ export * from "./service";
 export * from "./queue";
 export * from "./code";
 export * from "./customer-auth";
+export * from "./appointment";

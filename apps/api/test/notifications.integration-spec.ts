@@ -55,7 +55,7 @@ describe("Notification infrastructure (integration)", () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    await app.init();
+    await app.listen(0); // one bound port per suite — see jest-integration.config.js
     smsProvider = moduleRef.get(SmsProvider) as MockSmsProvider;
     emailProvider = moduleRef.get(EmailProvider) as MockEmailProvider;
     notifications = moduleRef.get(NotificationsService);

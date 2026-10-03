@@ -129,6 +129,29 @@ describe("Retention (integration)", () => {
     expect(reloaded.firstName).toBe("Real Name");
   });
 
+  it("protects a customer with a future booked appointment even if their last completed entry is stale (Phase 13)", async () => {
+    const customer = await createCustomer("+64211000009");
+    await createEntry(customer.id, "COMPLETED", daysAgo(100));
+    const startsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    await prisma.appointment.create({
+      data: {
+        tenantId,
+        locationId,
+        serviceId,
+        customerId: customer.id,
+        publicToken: `appt_${randomUUID()}`,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 30 * 60_000),
+        occupiedUntil: new Date(startsAt.getTime() + 30 * 60_000),
+        localDate: new Date(startsAt.toISOString().slice(0, 10)),
+      },
+    });
+
+    const result = await retention.purgeStalePii();
+
+    expect(result.anonymizedCustomerIds).not.toContain(customer.id);
+  });
+
   it("keeps historical QueueEntry rows intact after anonymization, just no longer attributable to a real person", async () => {
     const customer = await createCustomer("+64211000004");
     const entry = await createEntry(customer.id, "COMPLETED", daysAgo(365));

@@ -19,6 +19,7 @@ import {
   buildNearlyNextMessage,
   buildRecalledMessage,
 } from "../notifications/notification-copy";
+import { resolveChannel } from "../notifications/resolve-channel";
 import { normalizePhoneToE164 } from "../common/phone.util";
 import { getLocationServiceDate } from "../common/timezone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
@@ -34,16 +35,6 @@ function notFoundScanCode(): NotFoundException {
     code: "SCAN_CODE_NOT_FOUND",
     message: "This code isn't recognized.",
   });
-}
-
-/** Email if the customer has one on file (not true for any join-flow customer today), SMS otherwise (G-32/ADR-008) — every anonymous walk-in resolves to SMS by construction. */
-function resolveChannel(customer: { phoneE164: string; email: string | null }): {
-  channel: NotificationChannel;
-  recipient: string;
-} {
-  return customer.email
-    ? { channel: "EMAIL", recipient: customer.email }
-    : { channel: "SMS", recipient: customer.phoneE164 };
 }
 
 const ACTIVE_STATUSES: QueueEntryStatus[] = ["WAITING", "CALLED", "SERVING"];

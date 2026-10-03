@@ -53,7 +53,7 @@ describe("Rate limiting (integration, G-38)", () => {
     const prisma = new PrismaClient();
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     const app = moduleRef.createNestApplication();
-    await app.init();
+    await app.listen(0); // one bound port per suite — see jest-integration.config.js
     return { container, app, prisma };
   }
 

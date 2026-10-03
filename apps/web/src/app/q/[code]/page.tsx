@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Button, Card, Input } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
@@ -87,6 +88,16 @@ export default function CodeLandingPage() {
     );
   }
 
+  // Phase 13 — the same poster also offers booking ahead, when the business takes appointments.
+  const bookingLink = resolution.capabilities.includes("BOOK_APPOINTMENT") ? (
+    <Link
+      href={`/q/${code}/book`}
+      className="inline-flex min-h-[48px] items-center justify-center rounded-md border border-border bg-surface px-6 py-3 text-base font-medium text-text-primary hover:bg-bg"
+    >
+      Book an appointment instead
+    </Link>
+  ) : null;
+
   if (resolution.queue.status !== "ACTIVE") {
     return (
       <Centered>
@@ -96,6 +107,7 @@ export default function CodeLandingPage() {
             ? "This queue is temporarily paused. Please try again shortly."
             : "This queue is currently closed."}
         </p>
+        {bookingLink}
       </Centered>
     );
   }
@@ -164,6 +176,7 @@ export default function CodeLandingPage() {
           </Button>
         </form>
       </Card>
+      {bookingLink}
     </main>
   );
 }

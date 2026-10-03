@@ -1,8 +1,8 @@
 # Project Status
 
 Last Updated: 2026-10-03
-Current Phase: Phase 12 — Hardening, done (see `docs/roadmap.md` — the authoritative 13-phase list, Phases 0–12 all done)
-Current Task: None scheduled — the roadmap's scheduled phases are complete; next work is either a real pilot business's actual usage, or one of the explicitly-deferred items in `docs/roadmap.md`
+Current Phase: Phase 13 — Appointment Engine, done (see `docs/roadmap.md` — now 0–14; Phases 13–14 added 2026-10-03)
+Current Task: Phase 14 — Appointment Check-In & Mixed Queue (not started)
 
 ## Completed
 
@@ -133,12 +133,18 @@ Current Task: None scheduled — the roadmap's scheduled phases are complete; ne
 - Tests: 25 new unit (`retention.service.spec.ts` ×3, `in-memory-rate-limiter.spec.ts` ×3, `sse-connection-limiter.service.spec.ts` ×5, `join-phone-throttle.guard.spec.ts` ×5, `ticket-token-throttle.guard.spec.ts` ×4, `email-provider-mail.service.spec.ts` ×3, `codes.service.spec.ts` +2) → 217 total unit; new `retention.integration-spec.ts` (5 tests) + `rate-limit.integration-spec.ts` rewritten (3 isolated describe blocks, each with its own Testcontainers instance to avoid cross-dimension counter leakage) → 77 total integration. `pnpm quality` green end to end.
 - Manual verification: real production builds (`pnpm build && pnpm start`) of `apps/web` driven through a real headless browser for the CSP work (full join flow incl. cross-origin fetch and a live SSE ticket subscription, zero console/CSP errors) and the accessibility scan; the API's real dev server + a real Postgres for every other check (rate-limit enforcement observed live, the Image Optimizer route probed directly before/after the fix, the backup/restore exercise, an OTP login recovered from its DB-stored hash to mint a real staff session for the authenticated-page accessibility scan).
 
+### Phase 13 — Appointment Engine
+
+- Appointment engine per ADR-012 (G-22/23/24/26 resolved first): pooled location capacity, fixed slot grid, date closures, location-row-locked booking, customer/staff cancel, staff calendar, booking from QUEUE codes, portal listing. Also fixed a pre-existing integration-suite flake (per-request ephemeral ports) across every suite. Detail: [`docs/status/phase-13.md`](docs/status/phase-13.md). 248 unit + 94 integration.
+
 ## Decisions Made
 
-See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
+See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
 
 ## Known Issues
 
+- Appointment booking page day chips start from the browser's today, not the location's; public booking has no per-phone throttle or future-booking cap (Phase 13 — see `docs/status/phase-13.md`).
+- `PROJECT_STATUS.md` itself is ~80KB despite AGENTS.md §8's cap — Phases 0–12's entries are long inline essays. Moving them into `docs/status/phase-NN.md` files (as Phase 13 does) is a worthwhile cleanup, not done here to keep this phase's diff focused.
 - **G-40 partial**: Cloudflare Turnstile (the specific bot-check the plan calls for on the join POST) is not integrated — only IP-based rate limiting (`@nestjs/throttler`, 5/min on join) ships. Adding Turnstile requires an external Cloudflare account/site key.
 - Real SMS provider not integrated at all — only `MockSmsProvider` exists; `SMS_PROVIDER=pingram` (or anything but `mock`) throws at boot by design. Deliberately deferred (G-29) until real per-tenant cost caps exist and NZ SMS pricing is verified on Pingram's pricing page (their advertised free tier is described as "100 SMS to the US" — NZ isn't confirmed).
 - An anonymous walk-in join is still SMS-channel by construction (only a phone is captured) — `EmailProvider`/`PingramEmailProvider` are reachable through real customer traffic (Phase 9's account emails, proven live) but a queue _notification_ for an unlinked walk-in still has no email to send to unless that phone number already belongs to a signed-up account. Auth OTP/invite emails for staff are now on the same real `EmailProvider` path too (Phase 12, G-41 — `ConsoleMailService` is gone).
@@ -159,14 +165,8 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-None scheduled. `docs/roadmap.md`'s authoritative 0–12 phase list is complete — Phase 12 (Hardening)
-was the last scheduled phase. What's left is either:
-
-- One of the items in this file's Known Issues above (none blocking; each has a reason it's not yet
-  built, not an oversight).
-- One of `docs/roadmap.md`'s "Explicitly deferred — not scheduled, revisit only on real demand" items
-  (appointments, historical analytics, multi-location beyond one tenant's natural footprint,
-  `PLATFORM_ADMIN`, i18n translation, Web Push delivery, Redis-backed rate limiting/SSE for horizontal
-  scale).
-- Whatever a real pilot business's actual usage surfaces — which, per ADR-010's original scoping
-  rationale, is the intended next trigger for new work, not a fixed backlog.
+**Phase 14 — Appointment Check-In & Mixed Queue** (`docs/roadmap.md`). Start with the decisions still
+open for it: the G-25 priority window size and where it's configured, and whether no-show (§77) and
+reminders (§75) run on `@nestjs/schedule` crons like the retention job (likely). Then:
+`APPOINTMENT_TICKET` code (D-12), `queue_entry.appointmentId`, check-in by staff/link/scanner
+(same-day, same-location, idempotent), `CHECKED_IN`/`NO_SHOW` states, priority sort in Call Next.

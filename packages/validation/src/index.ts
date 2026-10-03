@@ -6,3 +6,4 @@ export * from "./queue";
 export * from "./code";
 export * from "./customer-auth";
 export * from "./guest-cards";
+export * from "./appointment";

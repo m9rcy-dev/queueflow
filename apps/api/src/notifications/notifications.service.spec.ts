@@ -67,6 +67,7 @@ describe("NotificationsService", () => {
         data: {
           tenantId: "tenant-1",
           queueEntryId: "entry-1",
+          appointmentId: null,
           type: "CALLED",
           channel: "SMS",
           recipient: "+64211234567",

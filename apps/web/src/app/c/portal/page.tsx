@@ -3,13 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, type BadgeTone } from "@queueflow/ui";
+import Link from "next/link";
 import type {
   CustomerActiveEntry,
   CustomerPortalSummary,
+  CustomerUpcomingAppointment,
   QueueEntryStatus,
 } from "@queueflow/types";
 import { customerApi } from "../../../lib/customer-api-client";
 import { TicketQrCode } from "../../../components/TicketQrCode";
+import { formatDateTimeIn } from "../../../lib/appointment-format";
 
 const STATUS_COPY: Record<QueueEntryStatus, { title: string; tone: BadgeTone }> = {
   WAITING: { title: "Waiting", tone: "info" },
@@ -32,6 +35,7 @@ export default function CustomerPortalPage() {
   const router = useRouter();
   const [summary, setSummary] = useState<CustomerPortalSummary | null>(null);
   const [activeEntry, setActiveEntry] = useState<CustomerActiveEntry | null>(null);
+  const [appointments, setAppointments] = useState<CustomerUpcomingAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
@@ -44,8 +48,12 @@ export default function CustomerPortalPage() {
         return;
       }
       setSummary(restored);
-      const entry = await customerApi.getActiveEntry().catch(() => null);
+      const [entry, upcoming] = await Promise.all([
+        customerApi.getActiveEntry().catch(() => null),
+        customerApi.getUpcomingAppointments().catch(() => []),
+      ]);
       setActiveEntry(entry);
+      setAppointments(upcoming);
       setLoading(false);
     })();
     // `router` from useRouter() is a stable reference across re-renders in
@@ -111,6 +119,26 @@ export default function CustomerPortalPage() {
           <Button variant="secondary" onClick={handleRefresh} disabled={refreshing}>
             {refreshing ? "Refreshing…" : "Refresh"}
           </Button>
+        </Card>
+      )}
+
+      {appointments.length > 0 && (
+        <Card className="flex w-full flex-col gap-3 text-left">
+          <h2 className="text-lg font-medium text-text-primary">Upcoming appointments</h2>
+          {appointments.map((appointment) => (
+            <Link
+              key={appointment.publicToken}
+              href={`/appointment/${appointment.publicToken}`}
+              className="rounded-md border border-border px-4 py-3 hover:bg-bg"
+            >
+              <p className="font-medium text-text-primary">
+                {formatDateTimeIn(appointment.startsAt, appointment.timezone)}
+              </p>
+              <p className="text-sm text-text-secondary">
+                {appointment.service.name} · {appointment.location.name}
+              </p>
+            </Link>
+          ))}
         </Card>
       )}
 

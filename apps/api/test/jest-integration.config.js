@@ -10,6 +10,16 @@
  * afterAll already calls container.stop() explicitly, so disabling Ryuk only
  * gives up its extra safety net (cleanup after an unclean process kill), not
  * normal test-run cleanup.
+ *
+ * Every suite calls `app.listen(0)` in beforeAll rather than `app.init()`.
+ * Given an unbound server, supertest binds a fresh ephemeral port for each
+ * request and closes it afterwards; with all suites running in parallel
+ * (each with its own Postgres container), a just-released port can be
+ * handed to another process before the next request, which then talks to
+ * the wrong server ("Parse Error: Expected HTTP/", or another suite's app
+ * answering 404). A port bound once per suite is reused and never
+ * released mid-suite. Found in Phase 13, when the suite count grew enough
+ * to make the flake regular.
  */
 module.exports = {
   moduleFileExtensions: ["js", "json", "ts"],

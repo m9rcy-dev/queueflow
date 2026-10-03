@@ -31,7 +31,11 @@ export const createLocationSchema = z.object({
 });
 export type CreateLocationInput = z.infer<typeof createLocationSchema>;
 
-export const updateLocationSchema = createLocationSchema.partial();
+/** Appointment pool fields (Phase 13, G-23/ADR-012) are update-only — a new location starts at capacity 1, no daily cap. */
+export const updateLocationSchema = createLocationSchema.partial().extend({
+  appointmentCapacity: z.number().int().min(1).max(100).optional(),
+  maxAppointmentsPerDay: z.number().int().min(1).max(1000).nullable().optional(),
+});
 export type UpdateLocationInput = z.infer<typeof updateLocationSchema>;
 
 const businessHoursEntrySchema = z

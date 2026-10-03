@@ -1,5 +1,6 @@
 import { Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
 import { Public } from "../auth/public.decorator";
+import { AppointmentsService } from "../appointments/appointments.service";
 import { CustomersService } from "../customers/customers.service";
 import { CurrentCustomer } from "./current-customer.decorator";
 import { CustomerJwtAuthGuard } from "./customer-jwt-auth.guard";
@@ -16,7 +17,10 @@ import type { CustomerRequestUser } from "./customer-request-user.interface";
 @Public()
 @UseGuards(CustomerJwtAuthGuard)
 export class CustomerPortalController {
-  constructor(private readonly customersService: CustomersService) {}
+  constructor(
+    private readonly customersService: CustomersService,
+    private readonly appointmentsService: AppointmentsService,
+  ) {}
 
   @Get()
   me(@CurrentCustomer() customer: CustomerRequestUser) {
@@ -46,5 +50,11 @@ export class CustomerPortalController {
   @HttpCode(HttpStatus.OK)
   activeEntry(@CurrentCustomer() customer: CustomerRequestUser) {
     return this.customersService.getActiveEntry(customer.tenantId, customer.customerId);
+  }
+
+  /** Upcoming bookings (Phase 13) — any appointment booked with this customer's phone, whether booked signed-in or not. */
+  @Get("appointments")
+  appointments(@CurrentCustomer() customer: CustomerRequestUser) {
+    return this.appointmentsService.listUpcomingForCustomer(customer.tenantId, customer.customerId);
   }
 }

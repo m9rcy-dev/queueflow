@@ -330,8 +330,9 @@ describe("CodesService", () => {
           id: "queue-1",
           name: "Main Queue",
           status: "ACTIVE",
-          location: { name: "Christchurch" },
-          tenant: { name: "Joe's Barbers" },
+          locationId: "loc-1",
+          location: { id: "loc-1", name: "Christchurch" },
+          tenant: { name: "Joe's Barbers", appointmentEnabled: false },
           queueServices: [
             {
               service: {
@@ -360,11 +361,13 @@ describe("CodesService", () => {
       expect(result).toEqual({
         contextType: "QUEUE",
         tenant: { name: "Joe's Barbers" },
-        location: { name: "Christchurch" },
+        location: { id: "loc-1", name: "Christchurch" },
         queue: { id: "queue-1", name: "Main Queue", status: "ACTIVE" },
         capabilities: ["JOIN_QUEUE"],
         // The inactive service is filtered out — never offered to a customer.
         services: [{ id: "svc-1", name: "Haircut", durationMinutes: 20 }],
+        // Appointment capability off for this tenant — nothing bookable offered (Phase 13).
+        appointmentServices: [],
       });
     });
   });

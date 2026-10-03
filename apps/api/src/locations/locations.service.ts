@@ -54,6 +54,12 @@ export class LocationsService {
         ...(input.name !== undefined && { name: input.name }),
         ...(input.address !== undefined && { address: input.address }),
         ...(input.timezone !== undefined && { timezone: input.timezone }),
+        ...(input.appointmentCapacity !== undefined && {
+          appointmentCapacity: input.appointmentCapacity,
+        }),
+        ...(input.maxAppointmentsPerDay !== undefined && {
+          maxAppointmentsPerDay: input.maxAppointmentsPerDay,
+        }),
       },
     });
     return toLocationSummary(location);
@@ -105,12 +111,16 @@ function toLocationSummary(location: {
   name: string;
   address: string | null;
   timezone: string;
+  appointmentCapacity: number;
+  maxAppointmentsPerDay: number | null;
 }): LocationSummary {
   return {
     id: location.id,
     name: location.name,
     address: location.address,
     timezone: location.timezone,
+    appointmentCapacity: location.appointmentCapacity,
+    maxAppointmentsPerDay: location.maxAppointmentsPerDay,
   };
 }
 

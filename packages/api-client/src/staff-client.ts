@@ -1,5 +1,11 @@
 import type {
+  AppointmentCalendarDay,
+  AppointmentSettings,
   AuthSuccessResponse,
+  BookAppointmentResponse,
+  CreateClosureResponse,
+  LocationClosureSummary,
+  StaffAppointmentSummary,
   BusinessHoursEntry,
   CodeContextType,
   CodeSummary,
@@ -18,12 +24,16 @@ import type {
   TrustDeviceResponse,
 } from "@queueflow/types";
 import type {
+  BookAppointmentInput,
+  CreateClosureInput,
   CreateInviteInput,
   CreateLocationInput,
   CreateQueueInput,
   CreateServiceInput,
   JoinQueueInput,
   ReplaceBusinessHoursInput,
+  StaffCancelAppointmentInput,
+  UpdateAppointmentSettingsInput,
   UpdateCapabilitiesInput,
   UpdateLocationInput,
   UpdateQueueConfigInput,
@@ -387,6 +397,65 @@ export class StaffApiClient {
 
   recallEntry(entryId: string): Promise<StaffQueueEntrySummary> {
     return this.request(`/tenants/me/queue-entries/${entryId}/recall`, { method: "POST" });
+  }
+
+  // --- Appointments (Phase 13, ADR-012) ---
+
+  getAppointmentSettings(): Promise<AppointmentSettings> {
+    return this.request("/tenants/me/appointment-settings");
+  }
+
+  updateAppointmentSettings(input: UpdateAppointmentSettingsInput): Promise<AppointmentSettings> {
+    return this.request("/tenants/me/appointment-settings", { method: "PATCH", body: input });
+  }
+
+  listClosures(locationId: string): Promise<LocationClosureSummary[]> {
+    return this.request(`/tenants/me/locations/${locationId}/closures`);
+  }
+
+  createClosure(locationId: string, input: CreateClosureInput): Promise<CreateClosureResponse> {
+    return this.request(`/tenants/me/locations/${locationId}/closures`, {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  deleteClosure(locationId: string, closureId: string): Promise<void> {
+    return this.request(`/tenants/me/locations/${locationId}/closures/${closureId}`, {
+      method: "DELETE",
+    });
+  }
+
+  getAppointmentCalendar(locationId: string, month: string): Promise<AppointmentCalendarDay[]> {
+    return this.request(
+      `/tenants/me/locations/${locationId}/appointments/calendar?month=${encodeURIComponent(month)}`,
+    );
+  }
+
+  listAppointmentsForDay(locationId: string, date: string): Promise<StaffAppointmentSummary[]> {
+    return this.request(
+      `/tenants/me/locations/${locationId}/appointments?date=${encodeURIComponent(date)}`,
+    );
+  }
+
+  bookAppointmentForCustomer(
+    locationId: string,
+    input: BookAppointmentInput,
+  ): Promise<BookAppointmentResponse> {
+    return this.request(`/tenants/me/locations/${locationId}/appointments`, {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  cancelAppointment(
+    appointmentId: string,
+    input: StaffCancelAppointmentInput,
+  ): Promise<StaffAppointmentSummary> {
+    return this.request(`/tenants/me/appointments/${appointmentId}/cancel`, {
+      method: "POST",
+      body: input,
+    });
   }
 
   private async request<T>(

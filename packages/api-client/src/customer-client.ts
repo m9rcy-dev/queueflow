@@ -2,6 +2,7 @@ import type {
   CustomerActiveEntry,
   CustomerAuthResponse,
   CustomerPortalSummary,
+  CustomerUpcomingAppointment,
 } from "@queueflow/types";
 import type { CustomerSignupInput } from "@queueflow/validation";
 import { ApiError } from "./errors";
@@ -106,6 +107,10 @@ export class CustomerApiClient {
 
   getActiveEntry(): Promise<CustomerActiveEntry | null> {
     return this.request("/customers/me/active-entry");
+  }
+
+  getUpcomingAppointments(): Promise<CustomerUpcomingAppointment[]> {
+    return this.request("/customers/me/appointments");
   }
 
   private async request<T>(

@@ -35,7 +35,7 @@ describe("Codes / QR resolver (integration)", () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    await app.init();
+    await app.listen(0); // one bound port per suite — see jest-integration.config.js
   });
 
   afterAll(async () => {
@@ -106,10 +106,11 @@ describe("Codes / QR resolver (integration)", () => {
     expect(resolved.body).toEqual({
       contextType: "QUEUE",
       tenant: { name: "Joe's Barbers" },
-      location: { name: "Christchurch" },
+      location: { id: location.body.id, name: "Christchurch" },
       queue: { id: queue.body.id, name: "Main Queue", status: "ACTIVE" },
       capabilities: ["JOIN_QUEUE"],
       services: [{ id: service.body.id, name: "Haircut", durationMinutes: 20 }],
+      appointmentServices: [],
     });
   });
 
