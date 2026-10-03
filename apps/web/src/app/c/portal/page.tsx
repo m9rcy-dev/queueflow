@@ -120,7 +120,11 @@ export default function CustomerPortalPage() {
           Show this at the counter to check in faster next time.
         </p>
         <TicketQrCode url={summary.identityCode} />
-        <p className="font-mono text-lg tracking-widest text-text-primary">
+        {/* Phase 12 (G-39): this code is now a long, high-entropy token, not
+            the short printed alphabet it used to be — meant to be scanned,
+            not read aloud or typed, so it's shown small and allowed to wrap
+            rather than forced onto one line. */}
+        <p className="max-w-full break-all px-4 text-center font-mono text-xs text-text-secondary">
           {summary.identityCode}
         </p>
         <Button variant="secondary" onClick={handleRegenerate} disabled={regenerating}>

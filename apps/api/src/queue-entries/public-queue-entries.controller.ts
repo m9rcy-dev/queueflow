@@ -1,5 +1,18 @@
-import { Body, Controller, Get, MessageEvent, Param, Post, Sse } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  MessageEvent,
+  Param,
+  Post,
+  Req,
+  Sse,
+  UseGuards,
+} from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
+import type { Request } from "express";
 import { Observable } from "rxjs";
 import {
   cancelEntrySchema,
@@ -9,29 +22,37 @@ import {
 } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { Public } from "../auth/public.decorator";
+import { SseConnectionLimiterService } from "../common/sse-connection-limiter.service";
 import { QueueEventsService } from "../queue-events/queue-events.service";
 import { QueueEntriesService } from "./queue-entries.service";
+import { JoinPhoneThrottleGuard } from "./join-phone-throttle.guard";
+import { TicketTokenThrottleGuard } from "./ticket-token-throttle.guard";
 
 const SSE_HEARTBEAT_MS = 25_000;
 
 /**
  * The anonymous walk-in path (plan §19/§48) — no tenant token exists here,
  * the queueId/publicToken in the URL carry all the context this needs.
- * `join` is the first genuinely public-unauthenticated write endpoint in
- * the system, so it carries basic rate limiting (G-40) from day one —
- * full numbers-across-every-endpoint hardening and a real bot check
- * (Turnstile) stay Phase 12's job, but this one doesn't ship with zero
- * protection.
+ * Concrete rate-limit numbers throughout (G-38, Phase 12): join is capped
+ * both per-IP (`@Throttle`, below) and per-phone (`JoinPhoneThrottleGuard`
+ * — a shared IP shouldn't block a different customer's phone, and the same
+ * phone through multiple IPs shouldn't bypass its own cap either); ticket
+ * reads are capped per-token (`TicketTokenThrottleGuard`); the SSE watch
+ * below caps concurrent connections per IP (`SseConnectionLimiterService`
+ * — a different shape than request-rate throttling, since it's a long-lived
+ * connection count, not a request count).
  */
 @Controller()
 export class PublicQueueEntriesController {
   constructor(
     private readonly queueEntriesService: QueueEntriesService,
     private readonly queueEvents: QueueEventsService,
+    private readonly sseConnectionLimiter: SseConnectionLimiterService,
   ) {}
 
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(JoinPhoneThrottleGuard)
+  @Throttle({ default: { limit: 20, ttl: 3_600_000 } }) // G-38: 20/hour per IP
   @Post("public/queues/:queueId/entries")
   join(
     @Param("queueId") queueId: string,
@@ -41,6 +62,7 @@ export class PublicQueueEntriesController {
   }
 
   @Public()
+  @UseGuards(TicketTokenThrottleGuard)
   @Get("public/queue-entries/:token")
   get(@Param("token") token: string) {
     return this.queueEntriesService.getByPublicToken(token);
@@ -64,7 +86,15 @@ export class PublicQueueEntriesController {
    */
   @Public()
   @Sse("public/queue-entries/:token/events")
-  watch(@Param("token") token: string): Observable<MessageEvent> {
+  watch(@Param("token") token: string, @Req() req: Request): Observable<MessageEvent> {
+    const ip = req.ip ?? "unknown";
+    if (!this.sseConnectionLimiter.tryAcquire(ip)) {
+      throw new HttpException(
+        { code: "TOO_MANY_CONNECTIONS", message: "Too many open connections from this network." },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     return new Observable<MessageEvent>((subscriber) => {
       let unsubscribeFromQueue = (): void => undefined;
 
@@ -95,6 +125,7 @@ export class PublicQueueEntriesController {
       return () => {
         clearInterval(heartbeat);
         unsubscribeFromQueue();
+        this.sseConnectionLimiter.release(ip);
       };
     });
   }

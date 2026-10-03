@@ -379,12 +379,70 @@ the manifest/icons/service-worker). 192 unit + 70 integration tests, `pnpm quali
 
 ### Phase 12 — Hardening
 
+**Status: ✅ Done** (2026-10-03)
+
 Concrete rate-limit numbers in place everywhere (G-38), token entropy audit (G-39), secrets/log
 redaction (G-41), backup/restore actually tested against real data, accessibility pass (WCAG AA per
 plan §55), retention/deletion job running (90-day PII purge, G-37), dependency scanning.
 
+The token-entropy audit (G-39) found a real gap, not just confirmed compliance: `CUSTOMER_IDENTITY`/
+`GUEST_CARD` codes were minted with the same short, printable alphabet as `QUEUE`/`DISPLAY`/`GENERAL`,
+despite `plan-review.md` grouping the first two with `queue_entry.publicToken` as "secret tokens"
+(128-bit minimum) — presenting one at a scanner is a real capability (instant-join/hold), unlike a
+poster code which only reveals context. Fixed by routing those two context types through the same
+`generateSecurePublicToken` generator `publicToken` already used.
+
+G-38's concrete numbers are now enforced exactly: join 5/hour per phone + 20/hour per IP, QR
+resolution 100/min per IP, public ticket read 60/min per token, SSE 10 concurrent connections per IP.
+The phone/token dimensions needed standalone `CanActivate` guards — `@nestjs/throttler`'s named
+multi-throttler system only cleanly tracks by IP. **A real enforcement bug was caught specifically by
+integration testing, not unit testing**: the new guards were applied via `@UseGuards(...)` but never
+registered in the module's `providers` array, so Nest instantiated a fresh, stateless instance per
+request — the in-memory counter silently reset every call, meaning nothing was actually being limited
+despite every unit test passing (a unit test calls `canActivate()` repeatedly on one manually
+constructed instance, which can't expose a DI-resolution bug). Fixed by registering both guards as
+providers.
+
+G-41 surfaced the phase's biggest finding: staff auth email (`MailService`) had **no real delivery
+path in any environment**, still `ConsoleMailService` (log-only) despite Phase 8 building a fully real
+`EmailProvider`/`PingramEmailProvider` system for queue notifications — found via a systematic log-call
+audit, not a bug report. Fixed by consolidating onto the existing `EmailProvider` abstraction rather
+than building a third parallel provider. Also under G-41/G-08: the web app had no CSP or security
+headers at all, even though that's where the Bearer refresh token actually lives (`localStorage`), not
+the API. A nonce-based CSP (ADR-011) was added via Next.js middleware — the first version **broke the
+app entirely in production** (Next only nonces a page's scripts during dynamic rendering; a
+statically-prerendered page ships with no nonce and the browser blocks everything on it), caught by
+actually booting a production build in a real browser rather than trusting a `curl` of the response
+header, which looked correct the whole time. Fixed by forcing the whole app to render dynamically.
+`pnpm audit`'s 79 findings were triaged individually: one real, reachable critical (Next's
+`/_next/image` route is live by default even though the app never uses `next/image`, and a critical
+AVIF-triggered RCE lives in its request handling) fixed by blocking the route in middleware; everything
+else confirmed either not reachable in this app's actual usage or dev/build-tooling never shipped to
+production, with the remaining Next.js-14-core findings deferred to a dedicated major-version upgrade
+(tracked in `PROJECT_STATUS.md`'s Known Issues). Backup/restore was performed for real against the
+real dev database, not just designed — `docs/runbooks/backup-restore.md`.
+
+G-37 (90-day PII purge) is the project's first scheduled background job — a daily `@Cron()`-triggered
+`RetentionService.purgeStalePii()`, raw SQL for the correlated "last completed entry per customer"
+filter Prisma's query builder can't express, anonymizing (never deleting — history stays for
+analytics) a stale customer's PII while explicitly protecting anyone with a currently-active entry
+even if their last _completed_ visit elsewhere is stale (a safety condition added beyond G-37's literal
+text, documented as such). Deliberately no HTTP endpoint — platform-wide, no `PLATFORM_ADMIN` console
+exists to call it from.
+
+The accessibility pass (manual read-through + an automated axe-core/Playwright scan across every
+customer and staff flow) found two real issues, both fixed: the card/code scanner input had only a
+placeholder, no accessible name; `/admin` and `/display/[code]` genuinely lost their `<title>` after a
+client-side navigation, reproduced on a plain reload with zero test tooling involved.
+
 **Acceptance:** security tests pass; a restore has actually been performed once; production readiness
-checklist complete for a real pilot business.
+checklist complete for a real pilot business. Met — see `PROJECT_STATUS.md` for the full writeup, test
+counts (217 unit + 77 integration), and what's explicitly still deferred (the Next.js major-version
+upgrade; a scheduled/automated backup job, as opposed to the manual procedure now proven to work).
+
+**This completes every phase in the authoritative 0–12 list.** What remains is genuinely deferred work
+(see below) and whatever a real pilot business's actual usage surfaces — not anything already known
+and postponed within this list.
 
 ---
 

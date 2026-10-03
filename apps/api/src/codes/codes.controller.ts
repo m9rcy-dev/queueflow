@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { createCodeSchema, type CreateCodeInput } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { Public } from "../auth/public.decorator";
@@ -77,6 +78,7 @@ export class PublicCodesController {
   constructor(private readonly codesService: CodesService) {}
 
   @Public()
+  @Throttle({ default: { limit: 100, ttl: 60_000 } }) // G-38: 100/min per IP — already the global default, made explicit here since Phase 12 is about every limit being concrete and visible, not an accident of inheriting the baseline.
   @Get(":code")
   resolve(@Param("code") code: string) {
     return this.codesService.resolve(code);

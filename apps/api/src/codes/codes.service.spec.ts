@@ -226,6 +226,45 @@ describe("CodesService", () => {
     });
   });
 
+  describe("token entropy by context type (Phase 12, G-39 audit)", () => {
+    const SHORT_CODE_PATTERN = /^[2-9A-HJ-NP-Z]{8}$/; // generateShortPublicCode's alphabet/length
+    const SECRET_TOKEN_MIN_LENGTH = 25; // generateSecurePublicToken: 20 raw bytes, base64url-encoded
+
+    function mintedPublicCode(): string {
+      const call = prisma.code.create.mock.calls.at(-1);
+      return call?.[0]?.data?.publicCode;
+    }
+
+    it("QUEUE/DISPLAY/GENERAL get the short, printed, not-secret alphabet", async () => {
+      queuesService.findOwnedQueue.mockResolvedValue({ id: "queue-1" });
+      prisma.code.create.mockResolvedValue(codeRow);
+
+      await service.createForQueue(tenantId, "queue-1", "QUEUE");
+      expect(mintedPublicCode()).toMatch(SHORT_CODE_PATTERN);
+
+      await service.createForQueue(tenantId, "queue-1", "DISPLAY");
+      expect(mintedPublicCode()).toMatch(SHORT_CODE_PATTERN);
+
+      await service.createGeneral(tenantId);
+      expect(mintedPublicCode()).toMatch(SHORT_CODE_PATTERN);
+    });
+
+    it("CUSTOMER_IDENTITY and GUEST_CARD get a long, high-entropy token instead — a real capability when scanned, not just a context pointer", async () => {
+      prisma.code.findFirst.mockResolvedValue(null); // createForCustomer's idempotent-reuse check
+      prisma.code.create.mockResolvedValue(codeRow);
+
+      await service.createForCustomer(tenantId, "cust-1");
+      const identityCode = mintedPublicCode();
+      expect(identityCode.length).toBeGreaterThanOrEqual(SECRET_TOKEN_MIN_LENGTH);
+      expect(identityCode).not.toMatch(SHORT_CODE_PATTERN);
+
+      await service.createGuestCard(tenantId, "loc-1", 1);
+      const guestCode = mintedPublicCode();
+      expect(guestCode.length).toBeGreaterThanOrEqual(SECRET_TOKEN_MIN_LENGTH);
+      expect(guestCode).not.toMatch(SHORT_CODE_PATTERN);
+    });
+  });
+
   describe("resolve", () => {
     it("404s for an unknown code", async () => {
       prisma.code.findUnique.mockResolvedValue(null);

@@ -1,6 +1,16 @@
-import { Controller, MessageEvent, Param, Sse } from "@nestjs/common";
+import {
+  Controller,
+  HttpException,
+  HttpStatus,
+  MessageEvent,
+  Param,
+  Req,
+  Sse,
+} from "@nestjs/common";
+import type { Request } from "express";
 import { Observable } from "rxjs";
 import { Public } from "../auth/public.decorator";
+import { SseConnectionLimiterService } from "../common/sse-connection-limiter.service";
 import { QueueEventsService } from "../queue-events/queue-events.service";
 import { DisplaysService } from "./displays.service";
 
@@ -11,19 +21,29 @@ const SSE_HEARTBEAT_MS = 25_000;
  * identifies itself purely via the DISPLAY-context code in the URL.
  * Mirrors PublicQueueEntriesController's SSE handler exactly: an initial
  * snapshot on connect, then a fresh full snapshot on every queue change
- * (never a diff — G-27), plus a heartbeat to keep the connection alive
- * through proxies over the hours a screen typically stays open.
+ * (never a diff — G-27), a heartbeat to keep the connection alive through
+ * proxies over the hours a screen typically stays open, and the same
+ * concurrent-connections-per-IP cap (G-38, Phase 12).
  */
 @Controller()
 export class DisplaysController {
   constructor(
     private readonly displaysService: DisplaysService,
     private readonly queueEvents: QueueEventsService,
+    private readonly sseConnectionLimiter: SseConnectionLimiterService,
   ) {}
 
   @Public()
   @Sse("public/displays/:code/events")
-  watch(@Param("code") code: string): Observable<MessageEvent> {
+  watch(@Param("code") code: string, @Req() req: Request): Observable<MessageEvent> {
+    const ip = req.ip ?? "unknown";
+    if (!this.sseConnectionLimiter.tryAcquire(ip)) {
+      throw new HttpException(
+        { code: "TOO_MANY_CONNECTIONS", message: "Too many open connections from this network." },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     return new Observable<MessageEvent>((subscriber) => {
       let unsubscribeFromQueue = (): void => undefined;
 
@@ -49,6 +69,7 @@ export class DisplaysController {
       return () => {
         clearInterval(heartbeat);
         unsubscribeFromQueue();
+        this.sseConnectionLimiter.release(ip);
       };
     });
   }

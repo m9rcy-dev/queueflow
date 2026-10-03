@@ -76,6 +76,7 @@ export default function ScannerPage() {
           onChange={(e) => setCode(e.target.value)}
           disabled={submitting}
           autoFocus
+          aria-label="Scanned card or code"
           className="w-full rounded-md border border-border bg-surface px-4 py-4 text-center text-lg text-text-primary"
           placeholder="Waiting for scan…"
         />

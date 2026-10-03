@@ -1,11 +1,13 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
 import { AppThrottlerGuard } from "./common/app-throttler.guard";
+import { CommonModule } from "./common/common.module";
 import { CodesModule } from "./codes/codes.module";
 import { CustomerAuthModule } from "./customer-auth/customer-auth.module";
 import { CustomersModule } from "./customers/customers.module";
@@ -17,19 +19,26 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { QueueEntriesModule } from "./queue-entries/queue-entries.module";
 import { QueueEventsModule } from "./queue-events/queue-events.module";
 import { QueuesModule } from "./queues/queues.module";
+import { RetentionModule } from "./retention/retention.module";
 import { ServicesModule } from "./services/services.module";
 import { TenantsModule } from "./tenants/tenants.module";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     // In-memory throttling (single instance, D-06) — a generous default
     // baseline for authenticated routes, overridden per-route with
-    // @Throttle(...) where a tighter limit actually matters (the public
-    // join endpoint, G-40). Redis-backed storage is the documented swap
-    // for whenever a second instance exists (ADR-002/ADR-007).
+    // @Throttle(...) where G-38's concrete numbers call for something
+    // tighter (join, auth). Phone-/token-keyed limits (also G-38) and
+    // SSE's concurrent-connections-per-IP cap live outside this module
+    // entirely, in CommonModule/JoinPhoneThrottleGuard/
+    // TicketTokenThrottleGuard — @nestjs/throttler only tracks by IP.
+    // Redis-backed storage is the documented swap for whenever a second
+    // instance exists (ADR-002/ADR-007).
     ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 100 }]),
     PrismaModule,
+    CommonModule,
     QueueEventsModule,
     HealthModule,
     AuthModule,
@@ -43,6 +52,7 @@ import { TenantsModule } from "./tenants/tenants.module";
     CustomersModule,
     CustomerAuthModule,
     GuestCardsModule,
+    RetentionModule,
   ],
   providers: [
     // Every route is protected by default (AGENTS.md §2) — @Public() opts

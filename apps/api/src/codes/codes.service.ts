@@ -3,6 +3,23 @@ import type { CodeContextType, CodeResolution, CodeSummary } from "@queueflow/ty
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { generateShortPublicCode } from "../common/short-code.util";
+import { generateSecurePublicToken } from "../common/secure-token.util";
+
+/**
+ * Which contexts get the short, printed, explicitly-not-secret alphabet
+ * (G-39) vs. the long, high-entropy one. QUEUE/DISPLAY/GENERAL are business
+ * posters — reading one only reveals *which* queue/tenant, no capability.
+ * CUSTOMER_IDENTITY and GUEST_CARD are different: presenting one at the
+ * scanner (Phase 10) instantly joins a queue *as that customer* or *holding
+ * that card* — a real capability, not just a context pointer — so these get
+ * the same 128-bit-minimum treatment as queue_entry.publicToken (G-39's own
+ * "ticket public_token, identity/guest codes" grouping). Neither is ever
+ * hand-typed (always scanned), so the longer string costs nothing in UX.
+ */
+const SECRET_CONTEXT_TYPES: ReadonlySet<CodeContextType> = new Set([
+  "CUSTOMER_IDENTITY",
+  "GUEST_CARD",
+]);
 
 /**
  * The minimal code resolver (Phases 4, 6, 9 & 10, §4.5/ADR-005) — QUEUE,
@@ -180,8 +197,8 @@ export class CodesService {
   }
 
   /**
-   * Collision odds on an 8-char, 31-symbol alphabet are astronomically
-   * low, but retry once rather than trust that blindly.
+   * Collision odds on either alphabet are astronomically low, but retry
+   * once rather than trust that blindly.
    */
   private async mintCode(data: {
     tenantId: string;
@@ -191,10 +208,13 @@ export class CodesService {
     locationId?: string;
     guestNumber?: number;
   }): Promise<CodeSummary> {
+    const generatePublicCode = SECRET_CONTEXT_TYPES.has(data.contextType)
+      ? generateSecurePublicToken
+      : generateShortPublicCode;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
         const code = await this.prisma.code.create({
-          data: { ...data, publicCode: generateShortPublicCode() },
+          data: { ...data, publicCode: generatePublicCode() },
         });
         return toCodeSummary(code);
       } catch (err) {

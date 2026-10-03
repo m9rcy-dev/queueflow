@@ -611,8 +611,13 @@ enum CodeContextType {
 model Code {
   id             String          @id @default(uuid())
   tenantId       String
-  // Short, human-typable, printed — NOT a secret (G-39 distinguishes this
-  // from queue_entry.publicToken, which is long and genuinely secret).
+  // Format depends on contextType (Phase 12, G-39 audit): QUEUE/DISPLAY/
+  // GENERAL get the short, human-typable, printed alphabet — NOT a secret,
+  // reading one only reveals which queue/tenant. CUSTOMER_IDENTITY/
+  // GUEST_CARD get the same long, high-entropy format as
+  // queue_entry.publicToken instead — presenting one at the scanner is a
+  // real capability (instant-join as that customer / holding that card),
+  // not just a context pointer. See CodesService.mintCode.
   publicCode     String          @unique
   contextType    CodeContextType
   queueId        String?

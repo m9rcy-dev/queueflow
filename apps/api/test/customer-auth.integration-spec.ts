@@ -140,7 +140,11 @@ describe("Customer accounts & portal (integration)", () => {
       },
       tenant: { id: owner.tenant.id, name: "H's Shop" },
     });
-    expect(me.body.identityCode).toMatch(/^[2-9A-HJ-NP-Z]{8}$/);
+    // Phase 12 (G-39 audit): CUSTOMER_IDENTITY is a secret, capability-bearing
+    // token (scanning it instant-joins a queue as this customer), so it uses
+    // the long high-entropy alphabet, not the short printed one QUEUE/
+    // DISPLAY/GENERAL use.
+    expect(me.body.identityCode.length).toBeGreaterThanOrEqual(25);
 
     const identity = await request(app.getHttpServer())
       .get("/customers/me/identity-code")
@@ -186,7 +190,8 @@ describe("Customer accounts & portal (integration)", () => {
       .expect(201);
 
     expect(created.body.customer).toMatchObject({ firstName: "Jamie Walker", email: null });
-    expect(created.body.identityCode).toMatch(/^[2-9A-HJ-NP-Z]{8}$/);
+    // Phase 12 (G-39 audit): see the identical comment above.
+    expect(created.body.identityCode.length).toBeGreaterThanOrEqual(25);
   });
 
   it("an anonymous queue join with an account-holder's own phone number links to their existing account — the portal's active-entry reflects it live", async () => {
