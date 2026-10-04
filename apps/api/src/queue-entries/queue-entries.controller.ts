@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import {
   cancelEntrySchema,
+  handOverSchema,
+  type HandOverInput,
   joinQueueSchema,
   listQueueEntriesQuerySchema,
   scanCodeSchema,
@@ -82,7 +84,18 @@ export class QueueEntriesController {
   @Post("queue-entries/:id/start")
   async start(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     await this.access.assertQueueEntry(user, id);
-    return this.queueEntriesService.start(user.tenantId, id);
+    return this.queueEntriesService.start(user.tenantId, id, user.tenantUserId);
+  }
+
+  /** Phase 17 — hand the customer to whoever is actually serving them. */
+  @Post("queue-entries/:id/hand-over")
+  async handOver(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(handOverSchema)) body: HandOverInput,
+  ) {
+    await this.access.assertQueueEntry(user, id);
+    return this.queueEntriesService.handOver(user.tenantId, id, body.tenantUserId);
   }
 
   @Post("queue-entries/:id/complete")

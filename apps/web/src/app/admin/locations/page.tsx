@@ -7,7 +7,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { LocationSummary } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
-import { AdminNav } from "../../../components/AdminNav";
+import { AppShell } from "../../../components/AppShell";
 import { isBusinessAdmin } from "../../../lib/roles";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -34,12 +34,7 @@ export default function LocationsPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
-      <header className="pt-4">
-        <h1 className="mb-4 text-xl font-semibold text-text-primary">Locations</h1>
-        <AdminNav current="locations" role={session.role} />
-      </header>
-
+    <AppShell session={session} title={"Locations"}>
       <div className="flex flex-col gap-3">
         {locations.length === 0 && (
           <p className="text-sm text-text-secondary">No locations yet — create your first one.</p>
@@ -75,7 +70,7 @@ export default function LocationsPage() {
           </Button>
         )
       )}
-    </main>
+    </AppShell>
   );
 }
 

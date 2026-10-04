@@ -11,7 +11,7 @@ import type {
 } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
-import { AdminNav } from "../../../components/AdminNav";
+import { AppShell } from "../../../components/AppShell";
 import { isBusinessAdmin } from "../../../lib/roles";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -30,6 +30,9 @@ const ROLE_LABELS: Record<TenantRole, string> = {
 
 /** Managers and staff work at exactly one location; admins and the owner cover them all (ADR-015). */
 const needsLocation = (role: AssignableRole): boolean => role !== "TENANT_ADMIN";
+
+/** Owner/Admin manage the whole team; a Manager manages Staff at their own location (ADR-016). */
+const canManageTeam = (role: TenantRole): boolean => isBusinessAdmin(role) || role === "MANAGER";
 
 const selectClass =
   "min-h-[48px] rounded-md border border-border bg-surface px-4 py-3 text-base text-text-primary";
@@ -58,13 +61,13 @@ export default function StaffPage() {
   }
 
   useEffect(() => {
-    if (!session || !isBusinessAdmin(session.role)) return;
+    if (!session || !canManageTeam(session.role)) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   // Phase 16: managers/staff can reach this URL, but the API refuses them — say so, rather than load forever.
-  if (session && !isBusinessAdmin(session.role)) return <AdminOnly title="Staff" />;
+  if (session && !canManageTeam(session.role)) return <AdminOnly title="Staff" />;
 
   if (!session || !members || !invites || !locations) {
     return (
@@ -77,12 +80,7 @@ export default function StaffPage() {
   const pendingInvites = invites.filter((i) => !i.acceptedAt && !i.revokedAt);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
-      <header className="pt-4">
-        <h1 className="mb-4 text-xl font-semibold text-text-primary">Staff</h1>
-        <AdminNav current="staff" role={session.role} />
-      </header>
-
+    <AppShell session={session} title={"Staff"}>
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">
           Current staff
@@ -93,6 +91,7 @@ export default function StaffPage() {
             member={member}
             locations={locations}
             isSelf={member.tenantUserId === session.tenantUserId}
+            viewerIsAdmin={isBusinessAdmin(session.role)}
             onChanged={refresh}
           />
         ))}
@@ -107,7 +106,11 @@ export default function StaffPage() {
             Add a location first: managers and staff each work at one location.
           </p>
         ) : (
-          <InviteForm locations={locations} onInvited={refresh} />
+          <InviteForm
+            locations={locations}
+            staffOnly={!isBusinessAdmin(session.role)}
+            onInvited={refresh}
+          />
         )}
       </Card>
 
@@ -148,7 +151,7 @@ export default function StaffPage() {
           ))}
         </Card>
       )}
-    </main>
+    </AppShell>
   );
 }
 
@@ -156,11 +159,14 @@ function MemberRow({
   member,
   locations,
   isSelf,
+  viewerIsAdmin,
   onChanged,
 }: {
   member: TenantMemberSummary;
   locations: LocationSummary[];
   isSelf: boolean;
+  /** A manager (ADR-016) can only remove Staff, and can't change anyone's role or location. */
+  viewerIsAdmin: boolean;
   onChanged: () => Promise<void>;
 }) {
   const [mode, setMode] = useState<"view" | "edit" | "remove">("view");
@@ -170,7 +176,8 @@ function MemberRow({
   const [locationId, setLocationId] = useState(member.location?.id ?? locations[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const changeable = member.role !== "TENANT_OWNER" && !isSelf;
+  const changeable = viewerIsAdmin && member.role !== "TENANT_OWNER" && !isSelf;
+  const removable = changeable || (!viewerIsAdmin && member.role === "STAFF" && !isSelf);
 
   async function run(action: () => Promise<unknown>): Promise<void> {
     setBusy(true);
@@ -206,14 +213,14 @@ function MemberRow({
                 : "All locations"}
           </Badge>
           {changeable && mode === "view" && (
-            <>
-              <Button variant="secondary" onClick={() => setMode("edit")}>
-                Change
-              </Button>
-              <Button variant="destructive" onClick={() => setMode("remove")}>
-                Remove
-              </Button>
-            </>
+            <Button variant="secondary" onClick={() => setMode("edit")}>
+              Change
+            </Button>
+          )}
+          {removable && mode === "view" && (
+            <Button variant="destructive" onClick={() => setMode("remove")}>
+              Remove
+            </Button>
           )}
         </div>
       </div>
@@ -329,9 +336,12 @@ function RoleAndLocationFields({
 
 function InviteForm({
   locations,
+  staffOnly,
   onInvited,
 }: {
   locations: LocationSummary[];
+  /** A manager invites Staff to their own location only (ADR-016). */
+  staffOnly: boolean;
   onInvited: () => Promise<void>;
 }) {
   const [email, setEmail] = useState("");
@@ -371,13 +381,19 @@ function InviteForm({
         onChange={(e) => setEmail(e.target.value)}
         required
       />
-      <RoleAndLocationFields
-        role={role}
-        onRole={setRole}
-        locationId={locationId}
-        onLocation={setLocationId}
-        locations={locations}
-      />
+      {staffOnly ? (
+        <p className="text-sm text-text-secondary">
+          They&apos;ll join as <strong>Staff</strong> at <strong>{locations[0]?.name}</strong>.
+        </p>
+      ) : (
+        <RoleAndLocationFields
+          role={role}
+          onRole={setRole}
+          locationId={locationId}
+          onLocation={setLocationId}
+          locations={locations}
+        />
+      )}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {success && (
         <p className="text-sm text-green-700">

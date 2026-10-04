@@ -22,7 +22,7 @@ export class GuestCardsController {
   }
 
   @Put()
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   resize(
     @CurrentUser() user: RequestUser,
     @Param("locationId") locationId: string,

@@ -505,14 +505,46 @@ history kept); a business logo shown on every customer-facing page and the TV bo
 
 ## Next
 
-### Phase 17 — First Deploy
+### Phase 17 — Navigation, Roles & QR Codes
 
-**Status: Not started** (agreed 2026-10-04)
+**Status: ✅ Done** (2026-10-04) — see `docs/status/phase-17.md`, ADR-016
+
+Decided with the user 2026-10-04: a budget-terry-style app shell (left sidebar on desktop, drawer on
+mobile, user profile at the bottom with Account inside it) for the business and customer areas.
+Business menu: Queues, Appointments, QR Codes, Locations, Staff, Settings. **Managers run their own
+location** (its hours, closures, services, queues, QR codes, and inviting Staff to it); Staff
+operate only. A **QR Codes** page with every code in one place, printable (queue posters, TV links,
+sign-up poster, guest-card sheets). Customer area: Queues (live ticket + last 10 visits),
+Appointments, QR Codes (personal code + booking check-in codes), Account. Records **who served**
+each customer (set at Start, hand-over supported), groundwork for Phase 19. Also the TV board
+redesign: up to 12 waiting tickets as large, position-labelled tiles.
+
+### Phase 18 — Staff on Shift & Preferred Staff
+
+**Status: Not started**
+
+Clock in / clock out; customers may choose "anyone" or a staff member who is working; Call Next
+skips customers waiting for someone else (they keep their place); staff names on the TV board's
+"Now serving" (the user confirmed 2026-10-04: staff names or aliases on the public display are fine,
+since that's how they build their reputation). Reverses G-11 (plain FIFO), so it needs an ADR.
+Open: if the preferred staff member leaves, auto-revert to "anyone"? Preferences for bookings too?
+
+### Phase 19 — Staff Earnings
+
+**Status: Not started — decisions open**
+
+Service prices, how staff are paid (commission / hourly / mix), recording payments vs leaving them to
+the POS, and per-staff pay-period reports with CSV export.
+
+### Phase 20 — First Deploy
+
+**Status: Not started**
 
 Lock CORS to the web app's origin (it still allows any origin); a `render.yaml` for the API (build,
 `prisma migrate deploy`, start, health check); documented Vercel settings for the monorepo web app;
 a deploy runbook (Neon, Render, Vercel, Pingram sender verification, every environment variable, DNS
-for `q.m9rcy.dev`, smoke-test checklist). Hosting per ADR-009 unless the user decides otherwise.
+for `q.m9rcy.dev`, smoke-test checklist). Hosting per ADR-009 unless the user decides otherwise. A
+business sign-up screen (today only the API offers it) belongs here at the latest.
 
 ---
 
@@ -549,6 +581,6 @@ start from nothing:
 
 ## Count, for reference
 
-**18 phases in the active roadmap (0–17)**: 0–16 done, 17 next. Plus 4
+**21 phases in the active roadmap (0–20)**: 0–17 done; 18–20 planned. Plus 4
 explicitly deferred workstreams (analytics trends, platform admin, billing, flash-crowd/waiting-room
 queuing) tracked but not scheduled.

@@ -1,8 +1,8 @@
 # Project Status
 
 Last Updated: 2026-10-04
-Current Phase: Phase 16 — Team & Branding, done (see `docs/roadmap.md`)
-Current Task: Phase 17 — First Deploy (not started)
+Current Phase: Phase 17 — Navigation, Roles & QR Codes, done (see `docs/roadmap.md`)
+Current Task: Phase 18 — Staff on Shift & Preferred Staff (not started; open questions in the roadmap)
 
 ## Completed
 
@@ -149,13 +149,18 @@ Current Task: Phase 17 — First Deploy (not started)
 
 - Managers/Staff allocated to one location with per-request server enforcement (route sweep test), tablets per location, invite-acceptance page, member edit/soft-remove, business logo on customer pages. Detail: [`docs/status/phase-16.md`](docs/status/phase-16.md), ADR-015. 290 unit + 119 integration.
 
+### Phase 17 — Navigation, Roles & QR Codes
+
+- Sidebar app shell by role (business + customer), Managers run their location, QR Codes page with print views, who-served recording with hand-over, customer visit history, TV board redesign. Detail: [`docs/status/phase-17.md`](docs/status/phase-17.md), ADR-016. 290 unit + 125 integration.
+
 ## Decisions Made
 
-See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); authenticator-app login as an optional primary method with email fallback (Phase 15, ADR-014); staff allocated to one location, tablets per location, logos in Postgres (Phase 16, ADR-015); check-in and walk-in priority (Phase 14, ADR-013 — 10-min window per business, early check-ins wait in FIFO, same-day no-show restore); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
+See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); authenticator-app login as an optional primary method with email fallback (Phase 15, ADR-014); staff allocated to one location, tablets per location, logos in Postgres (Phase 16, ADR-015); Manager runs their location, role-based sidebar, who-served set at Start with hand-over (Phase 17, ADR-016); check-in and walk-in priority (Phase 14, ADR-013 — 10-min window per business, early check-ins wait in FIFO, same-day no-show restore); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
 
 ## Known Issues
 
-- **CORS still allows any origin** (`main.ts`) — must be locked to the web app's origin before deploying; scheduled in Phase 17. Location detail page edit forms show to managers/staff (API refuses the save) and the login screen's "remember this device" can't pick a location for multi-location owners (Phase 16 — see `docs/status/phase-16.md`).
+- **Don't run `pnpm quality` while `pnpm dev` is running**: the web production build overwrites `.next` and the running dev server loses its styling (restart it with `pnpm dev`). Phase 17's hand-over picker, Manager/Staff menus, customer area pages and mobile drawer weren't yet checked in a browser (see `docs/status/phase-17.md`).
+- **CORS still allows any origin** (`main.ts`) — must be locked to the web app's origin before deploying; scheduled in Phase 17. Managers may now edit their location; the login screen's "remember this device" can't pick a location for multi-location owners (Phase 16 — see `docs/status/phase-16.md`).
 - **`AUTHENTICATOR_ENCRYPTION_KEY` must be set before any production deploy** (Phase 15) — the API refuses to boot in production without it.
 - Appointment link check-in doesn't prove physical presence; walk-in "nearly your turn" notifications catch up on the next queue change when a priority window opens, not on the minute (Phase 14 — see `docs/status/phase-14.md`).
 - Appointment booking page day chips start from the browser's today, not the location's; public booking has no per-phone throttle or future-booking cap (Phase 13 — see `docs/status/phase-13.md`).
@@ -179,9 +184,9 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-**Phase 17 — First Deploy** (`docs/roadmap.md`): lock CORS to the web origin; `render.yaml` for the
-API (build, `prisma migrate deploy`, start, health check); Vercel settings for the monorepo web app;
-`docs/runbooks/deploy.md` (accounts, every env var incl. `AUTHENTICATOR_ENCRYPTION_KEY` and
-`WEB_APP_URL`, Pingram sender verification, DNS for `q.m9rcy.dev`, smoke test). The user creates the
-hosting accounts and enters secrets themselves. After that: real SMS (G-29) and consent text (G-48)
-before a real pilot. Merge the stacked branches (13 → 14 → 15 → 16) into `main` in order.
+**Phase 18 — Staff on Shift & Preferred Staff** (`docs/roadmap.md`). Before building, settle with
+the user: if a customer's preferred staff member clocks out, auto-revert them to "anyone"
+(suggested) or leave it to staff; and whether bookings get a staff preference too (suggested: no,
+walk-in queue only). Already decided: staff names/aliases may show on the TV board. Needs an ADR
+reversing G-11 and Call Next concurrency tests. Then Phase 19 (earnings) and Phase 20 (first
+deploy). Merge the stacked branches (13 → 17) into `main` in order.

@@ -20,7 +20,9 @@ import type {
   QueueSummary,
   QueueTodayStats,
   ServiceSummary,
+  StaffProfile,
   StaffQueueEntrySummary,
+  TeamMemberOption,
   TenantMemberSummary,
   TenantRole,
   TenantSummary,
@@ -58,12 +60,8 @@ function shouldRefreshOn401(path: string): boolean {
 }
 
 /** Mirrors apps/api's RequestUser (an API-internal shape, not published to @queueflow/types) — what GET /auth/me returns. */
-export interface StaffSession {
-  userId: string;
-  tenantId: string;
-  tenantUserId: string;
-  role: TenantRole;
-}
+/** What GET /auth/me returns — the signed-in member's profile (Phase 17 widened it for the app shell). */
+export type StaffSession = StaffProfile;
 
 /**
  * The authenticated staff client (Phase 5) — Bearer token attachment,
@@ -303,6 +301,19 @@ export class StaffApiClient {
       response = await send();
     }
     return this.parseResponse(response);
+  }
+
+  /** Phase 17 — who can serve at a location (hand-over picker). */
+  listLocationTeam(locationId: string): Promise<TeamMemberOption[]> {
+    return this.request(`/tenants/me/locations/${locationId}/team`);
+  }
+
+  /** Phase 17 — hand a called/in-progress customer to whoever is actually serving them. */
+  handOver(entryId: string, tenantUserId: string): Promise<StaffQueueEntrySummary> {
+    return this.request(`/tenants/me/queue-entries/${entryId}/hand-over`, {
+      method: "POST",
+      body: { tenantUserId },
+    });
   }
 
   removeLogo(): Promise<void> {

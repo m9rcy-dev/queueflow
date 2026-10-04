@@ -13,7 +13,7 @@ import type {
 } from "@queueflow/types";
 import { staffApi } from "../../../../lib/staff-api-client";
 import { useStaffSession } from "../../../../lib/use-staff-session";
-import { AdminNav } from "../../../../components/AdminNav";
+import { AppShell } from "../../../../components/AppShell";
 import {
   clockToMinutes,
   formatLocalDate,
@@ -157,12 +157,7 @@ export default function LocationDetailPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
-      <header className="pt-4">
-        <h1 className="mb-4 text-xl font-semibold text-text-primary">{location.name}</h1>
-        <AdminNav current="locations" role={session.role} />
-      </header>
-
+    <AppShell session={session} title={location.name}>
       <Card className="flex flex-col gap-4">
         <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">
           Location details
@@ -356,7 +351,7 @@ export default function LocationDetailPage() {
       </Card>
 
       <ClosuresCard locationId={locationId} timezone={location.timezone} />
-    </main>
+    </AppShell>
   );
 }
 

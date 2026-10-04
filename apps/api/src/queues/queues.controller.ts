@@ -27,11 +27,12 @@ export class QueuesController {
   ) {}
 
   @Post()
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   create(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createQueueSchema)) body: CreateQueueInput,
   ) {
+    this.access.assertLocation(user, body.locationId);
     return this.queuesService.create(user.tenantId, body);
   }
 
@@ -50,12 +51,13 @@ export class QueuesController {
   }
 
   @Patch(":id")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
-  updateConfig(
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
+  async updateConfig(
     @CurrentUser() user: RequestUser,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateQueueConfigSchema)) body: UpdateQueueConfigInput,
   ) {
+    await this.access.assertQueue(user, id);
     return this.queuesService.updateConfig(user.tenantId, id, body);
   }
 
@@ -71,18 +73,22 @@ export class QueuesController {
   }
 
   @Post(":id/services")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   async attachService(
     @CurrentUser() user: RequestUser,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(attachServiceSchema)) body: AttachServiceInput,
   ): Promise<{ message: string }> {
+    await this.access.assertQueue(user, id);
+    // A manager can only attach their own location's services (ADR-016).
+    await this.access.assertService(user, body.serviceId);
     await this.queuesService.attachService(user.tenantId, id, body);
     return { message: "Service attached." };
   }
 
   @Get(":id/services")
   async listServices(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    await this.access.assertQueue(user, id);
     await this.access.assertQueue(user, id);
     return this.queuesService.listServiceIds(user.tenantId, id);
   }

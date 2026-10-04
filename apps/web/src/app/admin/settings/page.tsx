@@ -6,7 +6,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { AppointmentSettings, CodeSummary, TenantSummary } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
-import { AdminNav } from "../../../components/AdminNav";
+import { AppShell } from "../../../components/AppShell";
 import { TicketQrCode } from "../../../components/TicketQrCode";
 import { BusinessLogo } from "../../../components/BusinessLogo";
 import { isBusinessAdmin } from "../../../lib/roles";
@@ -64,12 +64,7 @@ export default function SettingsPage() {
       : null;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
-      <header className="pt-4">
-        <h1 className="mb-4 text-xl font-semibold text-text-primary">Settings</h1>
-        <AdminNav current="settings" role={session.role} />
-      </header>
-
+    <AppShell session={session} title={"Settings"}>
       <Card className="flex flex-col gap-4">
         <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">
           Capabilities
@@ -149,7 +144,7 @@ export default function SettingsPage() {
           </Button>
         )}
       </Card>
-    </main>
+    </AppShell>
   );
 }
 

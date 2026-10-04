@@ -724,7 +724,7 @@ describe("QueueEntriesService", () => {
       prisma.queueEntry.findFirst.mockResolvedValue({ ...entry, status: "SERVING" });
       prisma.queue.findUniqueOrThrow.mockResolvedValue(queueRow);
 
-      const result = await service.start(tenantId, "entry-1");
+      const result = await service.start(tenantId, "entry-1", "staff-1");
       expect(result.status).toBe("SERVING");
       expect(prisma.queueEntry.updateMany).toHaveBeenCalledWith({
         where: { id: "entry-1", tenantId, status: { in: ["CALLED"] } },
@@ -737,7 +737,9 @@ describe("QueueEntriesService", () => {
       prisma.queueEntry.updateMany.mockResolvedValue({ count: 0 });
       prisma.queueEntry.findFirst.mockResolvedValue({ ...entry, status: "WAITING" });
 
-      await expect(service.start(tenantId, "entry-1")).rejects.toThrow(ConflictException);
+      await expect(service.start(tenantId, "entry-1", "staff-1")).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it("any transition 404s for an entry that doesn't exist (or belongs to another tenant)", async () => {
@@ -793,7 +795,7 @@ describe("QueueEntriesService", () => {
       prisma.queueEntry.findFirst.mockResolvedValue({ ...entry, status: "SERVING" });
       prisma.queue.findUniqueOrThrow.mockResolvedValue(queueRow);
 
-      await service.start(tenantId, "entry-1");
+      await service.start(tenantId, "entry-1", "staff-1");
 
       expect(prisma.code.updateMany).not.toHaveBeenCalled();
     });

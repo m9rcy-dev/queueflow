@@ -14,7 +14,7 @@ import type {
 import { staffApi } from "../../../lib/staff-api-client";
 import { publicApi } from "../../../lib/api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
-import { AdminNav } from "../../../components/AdminNav";
+import { AppShell } from "../../../components/AppShell";
 import {
   CANCELLATION_REASON_LABELS,
   formatLocalDate,
@@ -86,12 +86,7 @@ export default function AppointmentsPage() {
   const location = locations.find((l) => l.id === locationId) ?? null;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 bg-bg p-6">
-      <header className="pt-4">
-        <h1 className="mb-4 text-xl font-semibold text-text-primary">Appointments</h1>
-        <AdminNav current="appointments" role={session.role} />
-      </header>
-
+    <AppShell session={session} title={"Appointments"}>
       {!appointmentsOn && (
         <Card>
           <p className="text-text-secondary">
@@ -125,7 +120,7 @@ export default function AppointmentsPage() {
           <p className="text-text-secondary">Add a location first.</p>
         </Card>
       )}
-    </main>
+    </AppShell>
   );
 }
 

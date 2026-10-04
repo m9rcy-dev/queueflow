@@ -22,11 +22,12 @@ export class ServicesController {
   ) {}
 
   @Post()
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   create(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createServiceSchema)) body: CreateServiceInput,
   ) {
+    this.access.assertLocation(user, body.locationId);
     return this.servicesService.create(user.tenantId, body);
   }
 
@@ -48,12 +49,13 @@ export class ServicesController {
   }
 
   @Patch(":id")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
-  update(
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
+  async update(
     @CurrentUser() user: RequestUser,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateServiceSchema)) body: UpdateServiceInput,
   ) {
+    await this.access.assertService(user, id);
     return this.servicesService.update(user.tenantId, id, body);
   }
 }

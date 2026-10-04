@@ -1,4 +1,4 @@
-import type { QueueEntrySummary } from "./queue";
+import type { QueueEntryStatus, QueueEntrySummary } from "./queue";
 
 /**
  * Customer accounts (Phase 9, D-09) — tenant-scoped only, never spans
@@ -50,4 +50,20 @@ export interface CustomerPortalSummary {
 /** GET /customers/me/active-entry — null when the customer has nothing active in this tenant right now. */
 export interface CustomerActiveEntry extends QueueEntrySummary {
   queueName: string;
+}
+
+/** One past or current visit in the customer's Queues section (Phase 17). */
+export interface CustomerVisit {
+  id: string;
+  ticketNumber: number;
+  status: QueueEntryStatus;
+  queueName: string;
+  locationName: string;
+  serviceName: string;
+  joinedAt: string;
+  completedAt: string | null;
+  /** Who served them (Phase 17), once someone started. */
+  servedByName: string | null;
+  /** Only for a still-active visit — opens its live ticket page. */
+  publicToken: string | null;
 }

@@ -22,6 +22,7 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { Roles } from "../auth/roles.decorator";
 import type { RequestUser } from "../auth/request-user.interface";
 import { TenantsService } from "./tenants.service";
+import { LocationAccessService } from "../access/location-access.service";
 
 /**
  * All routes here operate on "my tenant" — the tenantId comes from the
@@ -31,7 +32,10 @@ import { TenantsService } from "./tenants.service";
  */
 @Controller("tenants/me")
 export class TenantsController {
-  constructor(private readonly tenantsService: TenantsService) {}
+  constructor(
+    private readonly tenantsService: TenantsService,
+    private readonly access: LocationAccessService,
+  ) {}
 
   @Get()
   getTenant(@CurrentUser() user: RequestUser) {
@@ -47,10 +51,11 @@ export class TenantsController {
     return this.tenantsService.updateCapabilities(user.tenantId, body);
   }
 
+  /** A manager sees their own location's team only (ADR-016). */
   @Get("staff")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   listStaff(@CurrentUser() user: RequestUser) {
-    return this.tenantsService.listMembers(user.tenantId);
+    return this.tenantsService.listMembers(user.tenantId, this.access.locationFilter(user));
   }
 
   /** Phase 16 — change a member's role and/or location (ADR-015). */
@@ -66,31 +71,31 @@ export class TenantsController {
 
   /** Phase 16 — remove a member (soft; they're signed out everywhere at once). */
   @Delete("staff/:id")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeMember(@CurrentUser() user: RequestUser, @Param("id") id: string): Promise<void> {
-    await this.tenantsService.removeMember(user.tenantId, user.tenantUserId, id);
+    await this.tenantsService.removeMember(user.tenantId, user, id);
   }
 
   @Post("invites")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   createInvite(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createInviteSchema)) body: CreateInviteInput,
   ) {
-    return this.tenantsService.createInvite(user.tenantId, body);
+    return this.tenantsService.createInvite(user.tenantId, body, user);
   }
 
   @Get("invites")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   listInvites(@CurrentUser() user: RequestUser) {
-    return this.tenantsService.listInvites(user.tenantId);
+    return this.tenantsService.listInvites(user.tenantId, this.access.locationFilter(user));
   }
 
   @Delete("invites/:id")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeInvite(@CurrentUser() user: RequestUser, @Param("id") id: string): Promise<void> {
-    await this.tenantsService.revokeInvite(user.tenantId, id);
+    await this.tenantsService.revokeInvite(user.tenantId, id, user);
   }
 }

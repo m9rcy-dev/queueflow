@@ -2,6 +2,7 @@ import { ConflictException, Injectable, Logger, NotFoundException } from "@nestj
 import { Prisma, type NotificationChannel, type NotificationType } from "@prisma/client";
 import type {
   CustomerActiveEntry,
+  CustomerVisit,
   JoinQueueResponse,
   PublicTicketSummary,
   QueueEntryStatus,
@@ -94,6 +95,8 @@ type EntryRow = {
 };
 
 type StaffEntryRow = EntryRow & {
+  // Phase 17: who did the work (Start / hand-over), distinct from who called.
+  servedByStaff: { id: string; user: { displayName: string } } | null;
   customer: { firstName: string | null; phoneE164: string } | null;
   assignedStaff: { id: string; user: { displayName: string } } | null;
   // The GUEST_CARD code currently linked to this entry, if any (Phase 10) — null for every non-guest-card entry.
@@ -680,6 +683,41 @@ export class QueueEntriesService {
     return { ...this.toSummary(entry, positionInfo), queueName: entry.queue.name };
   }
 
+  /**
+   * The customer's own recent visits in this tenant (Phase 17) — newest
+   * first, live ones included. The live ticket token is only returned for
+   * an active visit (it's that ticket's credential); finished visits don't
+   * need it.
+   */
+  async listRecentForCustomer(
+    tenantId: string,
+    customerId: string,
+    limit = 10,
+  ): Promise<CustomerVisit[]> {
+    const entries = await this.prisma.queueEntry.findMany({
+      where: { tenantId, customerId },
+      orderBy: { joinedAt: "desc" },
+      take: limit,
+      include: {
+        queue: { select: { name: true, location: { select: { name: true } } } },
+        service: { select: { name: true } },
+        servedByStaff: { include: { user: { select: { displayName: true } } } },
+      },
+    });
+    return entries.map((entry) => ({
+      id: entry.id,
+      ticketNumber: entry.ticketNumber,
+      status: entry.status,
+      queueName: entry.queue.name,
+      locationName: entry.queue.location.name,
+      serviceName: entry.service.name,
+      joinedAt: entry.joinedAt.toISOString(),
+      completedAt: entry.completedAt?.toISOString() ?? null,
+      servedByName: entry.servedByStaff?.user.displayName ?? null,
+      publicToken: ACTIVE_STATUSES.includes(entry.status) ? entry.publicToken : null,
+    }));
+  }
+
   async list(
     tenantId: string,
     queueId: string,
@@ -697,6 +735,7 @@ export class QueueEntriesService {
         service: { select: { durationMinutes: true } },
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
+        servedByStaff: { include: { user: { select: { displayName: true } } } },
         guestCard: { select: { guestNumber: true } },
         appointment: { select: { startsAt: true } },
       },
@@ -817,11 +856,69 @@ export class QueueEntriesService {
     return this.getByIdForTenant(tenantId, updated.id);
   }
 
-  async start(tenantId: string, entryId: string): Promise<StaffQueueEntrySummary> {
+  /**
+   * Phase 17 (ADR-016): whoever presses Start is recorded as serving the
+   * customer — unless they were already handed to someone (handOver), in
+   * which case that stands.
+   */
+  async start(
+    tenantId: string,
+    entryId: string,
+    actorTenantUserId: string,
+  ): Promise<StaffQueueEntrySummary> {
+    const entry = await this.prisma.queueEntry.findFirst({
+      where: { id: entryId, tenantId },
+      select: { servedByStaffId: true },
+    });
     await this.transition(tenantId, entryId, ["CALLED"], {
       status: "SERVING",
       startedAt: new Date(),
+      servedByStaffId: entry?.servedByStaffId ?? actorTenantUserId,
     });
+    return this.getByIdForTenant(tenantId, entryId);
+  }
+
+  /**
+   * Hand a called or in-progress customer to another team member (Phase
+   * 17) — e.g. Ana called them, Ben is doing the cut. The new person must
+   * be an active member who can work at this queue's location (owner/admin,
+   * or allocated there), so credit can't land on someone from another site.
+   */
+  async handOver(
+    tenantId: string,
+    entryId: string,
+    toTenantUserId: string,
+  ): Promise<StaffQueueEntrySummary> {
+    const entry = await this.findOwnedStaffEntry(tenantId, entryId);
+    if (entry.status !== "CALLED" && entry.status !== "SERVING") {
+      throw new ConflictException({
+        code: "INVALID_TRANSITION",
+        message: `Only a called or in-progress customer can be handed over — current status is ${entry.status}.`,
+      });
+    }
+    const queue = await this.prisma.queue.findUniqueOrThrow({
+      where: { id: entry.queueId },
+      select: { locationId: true },
+    });
+    const member = await this.prisma.tenantUser.findFirst({
+      where: {
+        id: toTenantUserId,
+        tenantId,
+        removedAt: null,
+        OR: [{ role: { in: ["TENANT_OWNER", "TENANT_ADMIN"] } }, { locationId: queue.locationId }],
+      },
+    });
+    if (!member) {
+      throw new NotFoundException({
+        code: "MEMBER_NOT_FOUND",
+        message: "That team member can't serve at this location.",
+      });
+    }
+    await this.prisma.queueEntry.update({
+      where: { id: entryId },
+      data: { servedByStaffId: member.id, version: { increment: 1 } },
+    });
+    this.queueEvents.emitQueueChanged(entry.queueId);
     return this.getByIdForTenant(tenantId, entryId);
   }
 
@@ -1178,6 +1275,7 @@ export class QueueEntriesService {
       include: {
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
+        servedByStaff: { include: { user: { select: { displayName: true } } } },
         guestCard: { select: { guestNumber: true } },
         appointment: { select: { startsAt: true } },
       },
@@ -1270,6 +1368,8 @@ export class QueueEntriesService {
       customerPhone: entry.customer?.phoneE164 ?? "",
       assignedStaffId: entry.assignedStaff?.id ?? null,
       assignedStaffName: entry.assignedStaff?.user.displayName ?? null,
+      servedByStaffId: entry.servedByStaff?.id ?? null,
+      servedByStaffName: entry.servedByStaff?.user.displayName ?? null,
       guestCardNumber: entry.guestCard?.guestNumber ?? null,
       appointmentStartsAt: entry.appointment?.startsAt.toISOString() ?? null,
       priorityActive: isPriorityActive(entry, new Date()),

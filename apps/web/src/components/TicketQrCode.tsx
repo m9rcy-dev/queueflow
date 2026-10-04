@@ -9,12 +9,22 @@ import QRCode from "qrcode";
  * lost, phone borrowed) can still get back to their ticket (G-45). Not a
  * new backend concept — it's just this page's URL rendered as an image.
  */
-export function TicketQrCode({ url }: { url: string }) {
+/** `size` in CSS pixels (Phase 17: print sheets want it bigger); `alt` describes what the code is for. */
+export function TicketQrCode({
+  url,
+  size = 180,
+  alt = "QR code for this ticket — scan to save or share this page",
+}: {
+  url: string;
+  size?: number;
+  alt?: string;
+}) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    QRCode.toDataURL(url, { margin: 1, width: 180 })
+    // Rendered at 2x so it stays sharp when printed.
+    QRCode.toDataURL(url, { margin: 1, width: size * 2 })
       .then((generated) => {
         if (!cancelled) setDataUrl(generated);
       })
@@ -24,7 +34,7 @@ export function TicketQrCode({ url }: { url: string }) {
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, size]);
 
   if (!dataUrl) {
     return null;
@@ -32,12 +42,6 @@ export function TicketQrCode({ url }: { url: string }) {
 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- a generated data URL, not an optimizable remote image
-    <img
-      src={dataUrl}
-      alt="QR code for this ticket — scan to save or share this page"
-      width={180}
-      height={180}
-      className="rounded-md"
-    />
+    <img src={dataUrl} alt={alt} width={size} height={size} className="rounded-md" />
   );
 }

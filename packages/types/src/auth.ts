@@ -120,3 +120,28 @@ export interface AuthenticatorSetup {
   otpauthUri: string;
   secret: string;
 }
+
+/**
+ * GET /auth/me (Phase 17): who's signed in, for the app shell — name and
+ * email for the profile footer, role and location for the menu, whether
+ * appointments are on (the Appointments item hides when they're off).
+ */
+export interface StaffProfile {
+  userId: string;
+  tenantId: string;
+  tenantUserId: string;
+  role: TenantRole;
+  locationId: string | null;
+  displayName: string;
+  email: string;
+  tenantName: string;
+  locationName: string | null;
+  appointmentEnabled: boolean;
+}
+
+/** Someone who can serve at a location — the hand-over picker (Phase 17). */
+export interface TeamMemberOption {
+  tenantUserId: string;
+  displayName: string;
+  role: TenantRole;
+}

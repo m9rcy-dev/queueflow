@@ -105,62 +105,147 @@ export default function DisplayPage() {
         : null;
 
   return (
-    <FullScreen>
+    <FullScreen centered={false}>
       {reconnecting && (
         <div className="absolute right-6 top-6 rounded-md bg-amber-500/20 px-3 py-1 text-sm text-amber-200">
           Reconnecting…
         </div>
       )}
 
-      <header className="text-center">
-        <BusinessLogo logoPath={snapshot.tenant.logoPath} name={snapshot.tenant.name} size="lg" />
-        <h1 className="text-3xl font-semibold">{snapshot.tenant.name}</h1>
-        <p className="text-white/60">{snapshot.location.name}</p>
+      <header className="flex w-full items-center gap-[1.5vw] border-b border-white/10 pb-[1.5vh]">
+        <BusinessLogo
+          logoPath={snapshot.tenant.logoPath}
+          name={snapshot.tenant.name}
+          centered={false}
+        />
+        <div className="text-left">
+          <h1 className="text-[clamp(1.25rem,2.2vw,2.5rem)] font-semibold leading-tight">
+            {snapshot.tenant.name}
+          </h1>
+          <p className="text-[clamp(0.9rem,1.3vw,1.5rem)] text-white/60">
+            {snapshot.location.name}
+          </p>
+        </div>
       </header>
 
       {statusMessage ? (
-        <p className="mt-16 text-4xl text-white/70">{statusMessage}</p>
+        <p className="m-auto text-[clamp(2rem,4vw,4rem)] text-white/70">{statusMessage}</p>
       ) : (
-        <>
-          <section className="mt-12 w-full max-w-4xl">
-            <h2 className="mb-4 text-center text-xl uppercase tracking-widest text-white/50">
-              Now Serving
-            </h2>
-            {snapshot.nowServing.length === 0 ? (
-              <p className="text-center text-2xl text-white/40">—</p>
-            ) : (
-              <div className="flex flex-wrap justify-center gap-8">
-                {snapshot.nowServing.map((entry) => (
-                  <div key={entry.ticketNumber} className="flex flex-col items-center">
-                    <span className="text-8xl font-bold tabular-nums">#{entry.ticketNumber}</span>
-                    <span className="mt-2 text-lg text-white/60">{entry.serviceName}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {snapshot.next.length > 0 && (
-            <section className="mt-16">
-              <h2 className="mb-3 text-center text-sm uppercase tracking-widest text-white/40">
-                Next Up
-              </h2>
-              <div className="flex justify-center gap-4 text-3xl tabular-nums text-white/60">
-                {snapshot.next.map((ticketNumber) => (
-                  <span key={ticketNumber}>#{ticketNumber}</span>
-                ))}
-              </div>
-            </section>
-          )}
-        </>
+        <div className="grid w-full flex-1 gap-[2vw] pt-[2vh] lg:grid-cols-[2fr_3fr]">
+          <NowServing entries={snapshot.nowServing} />
+          <Waiting next={snapshot.next} waitingCount={snapshot.waitingCount} />
+        </div>
       )}
     </FullScreen>
   );
 }
 
-function FullScreen({ children }: { children: React.ReactNode }) {
+/** Who's being served right now — for the customer just called, so big, but they only need it once. */
+function NowServing({ entries }: { entries: DisplaySnapshot["nowServing"] }) {
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center gap-4 bg-[#172033] p-8 text-center text-white">
+    <section className="flex flex-col rounded-2xl bg-white/5 p-[2vw]">
+      <h2 className="text-[clamp(1rem,1.6vw,2rem)] font-semibold uppercase tracking-widest text-emerald-300">
+        Now serving
+      </h2>
+      {entries.length === 0 ? (
+        <p className="m-auto text-[clamp(2rem,4vw,5rem)] text-white/30">—</p>
+      ) : (
+        <div className="flex flex-1 flex-col justify-center gap-[2vh]">
+          {entries.map((entry) => (
+            <div key={entry.ticketNumber} className="text-center">
+              <span className="block text-[clamp(4rem,9vw,12rem)] font-bold leading-none tabular-nums">
+                #{entry.ticketNumber}
+              </span>
+              <span className="text-[clamp(1rem,1.6vw,2rem)] text-white/60">
+                {entry.serviceName}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ordinal(n: number): string {
+  const suffix =
+    n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th");
+  return `${n}${suffix}`;
+}
+
+/**
+ * The line, in call order (Phase 17). People waiting watch this to find
+ * themselves — especially anyone without notifications — so every ticket
+ * is large, labelled with its place, and the very next one stands out.
+ */
+function Waiting({ next, waitingCount }: { next: number[]; waitingCount: number }) {
+  const [first, ...rest] = next;
+  const notShown = waitingCount - next.length;
+  return (
+    <section className="flex flex-col rounded-2xl bg-white/5 p-[2vw]">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-[clamp(1rem,1.6vw,2rem)] font-semibold uppercase tracking-widest text-sky-300">
+          Waiting
+        </h2>
+        <span className="text-[clamp(0.9rem,1.4vw,1.75rem)] text-white/60">
+          {waitingCount} {waitingCount === 1 ? "person" : "people"} waiting
+        </span>
+      </div>
+
+      {first === undefined ? (
+        <p className="m-auto text-[clamp(1.5rem,2.5vw,3rem)] text-white/40">No one waiting</p>
+      ) : (
+        <div className="mt-[2vh] flex flex-1 flex-col gap-[1.5vh]">
+          <div className="flex items-center justify-between rounded-xl bg-sky-400/20 px-[2vw] py-[1.5vh] ring-2 ring-sky-300/60">
+            <span className="text-[clamp(1.25rem,2.2vw,2.75rem)] font-semibold uppercase text-sky-200">
+              Next
+            </span>
+            <span className="text-[clamp(3rem,7vw,9rem)] font-bold leading-none tabular-nums">
+              #{first}
+            </span>
+          </div>
+          {rest.length > 0 && (
+            <ol className="grid grid-cols-2 gap-[1.2vh] sm:grid-cols-3 xl:grid-cols-4">
+              {rest.map((ticketNumber, index) => (
+                <li
+                  key={ticketNumber}
+                  className="flex flex-col items-start rounded-xl bg-white/10 px-[1.2vw] py-[0.8vh]"
+                >
+                  <span className="text-[clamp(0.8rem,1.1vw,1.4rem)] leading-tight text-white/50">
+                    {ordinal(index + 2)}
+                  </span>
+                  <span className="self-center text-[clamp(2rem,4vw,5.5rem)] font-bold leading-tight tabular-nums">
+                    #{ticketNumber}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {notShown > 0 && (
+            <p className="text-center text-[clamp(0.9rem,1.4vw,1.75rem)] text-white/50">
+              …and {notShown} more
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Centered for the loading/error states; the live board lays itself out top-to-bottom. */
+function FullScreen({
+  children,
+  centered = true,
+}: {
+  children: React.ReactNode;
+  centered?: boolean;
+}) {
+  return (
+    <main
+      className={`relative flex min-h-screen flex-col items-center gap-4 bg-[#172033] p-[2vw] text-center text-white ${
+        centered ? "justify-center" : ""
+      }`}
+    >
       {children}
     </main>
   );

@@ -12,6 +12,7 @@ import { confirmAuthenticatorSchema, type ConfirmAuthenticatorInput } from "@que
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AuthenticatorService } from "../authenticator/authenticator.service";
 import { CustomerAuthService } from "./customer-auth.service";
+import { QueueEntriesService } from "../queue-entries/queue-entries.service";
 import { Public } from "../auth/public.decorator";
 import { AppointmentsService } from "../appointments/appointments.service";
 import { CustomersService } from "../customers/customers.service";
@@ -35,6 +36,7 @@ export class CustomerPortalController {
     private readonly appointmentsService: AppointmentsService,
     private readonly customerAuthService: CustomerAuthService,
     private readonly authenticator: AuthenticatorService,
+    private readonly queueEntriesService: QueueEntriesService,
   ) {}
 
   @Get()
@@ -59,6 +61,12 @@ export class CustomerPortalController {
       customer.customerId,
     );
     return { publicCode };
+  }
+
+  /** Phase 17 — the Queues section: recent visits, newest first. */
+  @Get("visits")
+  visits(@CurrentCustomer() customer: CustomerRequestUser) {
+    return this.queueEntriesService.listRecentForCustomer(customer.tenantId, customer.customerId);
   }
 
   @Get("active-entry")

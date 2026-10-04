@@ -43,13 +43,21 @@ export class LocationsController {
   }
 
   @Patch(":id")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   update(
     @CurrentUser() user: RequestUser,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateLocationSchema)) body: UpdateLocationInput,
   ) {
+    this.access.assertLocation(user, id);
     return this.locationsService.update(user.tenantId, id, body);
+  }
+
+  /** Phase 17 — who can serve here (for handing a customer over); any member of this location. */
+  @Get(":id/team")
+  team(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    this.access.assertLocation(user, id);
+    return this.locationsService.listTeam(user.tenantId, id);
   }
 
   @Get(":id/business-hours")
@@ -59,12 +67,13 @@ export class LocationsController {
   }
 
   @Put(":id/business-hours")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   replaceBusinessHours(
     @CurrentUser() user: RequestUser,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(replaceBusinessHoursSchema)) body: ReplaceBusinessHoursInput,
   ) {
+    this.access.assertLocation(user, id);
     return this.locationsService.replaceBusinessHours(user.tenantId, id, body);
   }
 }

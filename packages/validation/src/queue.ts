@@ -88,3 +88,9 @@ export const listQueueEntriesQuerySchema = z.object({
     .optional(),
 });
 export type ListQueueEntriesQuery = z.infer<typeof listQueueEntriesQuerySchema>;
+
+/** Phase 17 — hand a called/in-progress customer to another team member. */
+export const handOverSchema = z.object({
+  tenantUserId: z.string().uuid(),
+});
+export type HandOverInput = z.infer<typeof handOverSchema>;

@@ -4,7 +4,12 @@ import { PrismaService } from "../prisma/prisma.service";
 import { sortByQueueOrder } from "../queue-entries/queue-order";
 import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
-const NEXT_UP_LIMIT = 5;
+/**
+ * How many waiting tickets the board lists. People in the line watch the
+ * board to find their place (the ones not using notifications most of
+ * all), so it shows a good stretch of the queue, not just the next few.
+ */
+const NEXT_UP_LIMIT = 12;
 
 function codeNotFound(): NotFoundException {
   return new NotFoundException({ code: "CODE_NOT_FOUND", message: "This code isn't recognized." });
@@ -71,6 +76,7 @@ export class DisplaysService {
         serviceName: row.service.name,
       })),
       next: next.map((row) => row.ticketNumber),
+      waitingCount: nextRows.length,
     };
   }
 }

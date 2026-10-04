@@ -9,10 +9,11 @@ import type {
   QueueEntryStatus,
   QueueTodayStats,
   StaffQueueEntrySummary,
+  TeamMemberOption,
 } from "@queueflow/types";
 import { staffApi } from "../../../../lib/staff-api-client";
 import { useStaffSession } from "../../../../lib/use-staff-session";
-import { AdminNav } from "../../../../components/AdminNav";
+import { AppShell } from "../../../../components/AppShell";
 
 const POLL_MS = 3_000;
 
@@ -49,6 +50,8 @@ export default function QueueDashboardPage() {
   const [showWalkInForm, setShowWalkInForm] = useState(false);
   const [deviceTrusting, setDeviceTrusting] = useState(false);
   const [locationId, setLocationId] = useState<string | null>(null);
+  const [queueName, setQueueName] = useState<string | null>(null);
+  const [team, setTeam] = useState<TeamMemberOption[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -62,7 +65,15 @@ export default function QueueDashboardPage() {
   useEffect(() => {
     if (!session) return;
     staffApi.listJoinableServices(queueId).then(setServices);
-    staffApi.getQueue(queueId).then((queue) => setLocationId(queue.locationId));
+    staffApi.getQueue(queueId).then((queue) => {
+      setLocationId(queue.locationId);
+      setQueueName(queue.name);
+      // Who could take over a customer here (Phase 17 hand-over).
+      staffApi
+        .listLocationTeam(queue.locationId)
+        .then(setTeam)
+        .catch(() => setTeam([]));
+    });
     refresh();
     const interval = setInterval(refresh, POLL_MS);
     return () => clearInterval(interval);
@@ -125,40 +136,23 @@ export default function QueueDashboardPage() {
     }
   }
 
-  async function handleLogout(): Promise<void> {
-    await staffApi.logout();
-    router.push("/admin/login");
-  }
-
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
-      <header className="flex flex-col gap-4 pt-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-text-primary">Queue Dashboard</h1>
-          <div className="flex gap-3 text-sm">
-            <button
-              type="button"
-              onClick={() => router.push("/admin/pin-setup")}
-              className="text-text-secondary underline"
-            >
-              Set up PIN
-            </button>
-            <button
-              type="button"
-              onClick={handleTrustDevice}
-              disabled={deviceTrusting}
-              className="text-text-secondary underline"
-            >
-              Trust this device
-            </button>
-            <button type="button" onClick={handleLogout} className="text-text-secondary underline">
-              Log out
-            </button>
-          </div>
-        </div>
-        <AdminNav current="queues" role={session.role} />
-      </header>
-
+    <AppShell
+      session={session}
+      title={queueName ?? "Queue"}
+      actions={
+        // Trust this device lives here, not in the profile menu: a counter
+        // tablet belongs to this queue's location (ADR-015).
+        <button
+          type="button"
+          onClick={handleTrustDevice}
+          disabled={deviceTrusting}
+          className="text-sm text-text-secondary underline"
+        >
+          Trust this device for this location
+        </button>
+      }
+    >
       <TodayStatsBar queueId={queueId} />
 
       {banner && (
@@ -214,6 +208,11 @@ export default function QueueDashboardPage() {
             key={entry.id}
             entry={entry}
             busy={busyEntryId === entry.id}
+            handOver={{
+              team,
+              onSelect: (tenantUserId) =>
+                runAction(entry.id, () => staffApi.handOver(entry.id, tenantUserId)),
+            }}
             actions={
               entry.status === "CALLED"
                 ? [
@@ -262,7 +261,7 @@ export default function QueueDashboardPage() {
           ))}
         </Section>
       )}
-    </main>
+    </AppShell>
   );
 }
 
@@ -418,12 +417,17 @@ function EntryRow({
   busy,
   actions,
   onAction,
+  handOver,
 }: {
   entry: StaffQueueEntrySummary;
   busy: boolean;
   actions: Array<{ label: string; destructive?: boolean; onClick: () => Promise<unknown> }>;
   onAction: (action: () => Promise<unknown>) => void;
+  /** Phase 17 — only for called/in-progress customers: pass them to whoever is actually serving. */
+  handOver?: { team: TeamMemberOption[]; onSelect: (tenantUserId: string) => void };
 }) {
+  // Who's doing the work (Phase 17): the hand-over/Start record wins over who called.
+  const servingName = entry.servedByStaffName ?? entry.assignedStaffName;
   return (
     <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -446,10 +450,30 @@ function EntryRow({
         <p className="text-sm text-text-secondary">
           {entry.customerName} · {entry.customerPhone}
           {entry.position !== null ? ` · position ${entry.position}` : ""}
-          {entry.assignedStaffName ? ` · with ${entry.assignedStaffName}` : ""}
+          {servingName ? ` · with ${servingName}` : ""}
         </p>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {handOver && handOver.team.length > 1 && (
+          <label className="flex items-center gap-1.5 text-sm text-text-secondary">
+            <span className="sr-only">Hand over #{entry.ticketNumber} to</span>
+            <select
+              value=""
+              disabled={busy}
+              onChange={(e) => e.target.value && handOver.onSelect(e.target.value)}
+              className="min-h-[40px] rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+            >
+              <option value="">Hand over to…</option>
+              {handOver.team
+                .filter((member) => member.tenantUserId !== entry.servedByStaffId)
+                .map((member) => (
+                  <option key={member.tenantUserId} value={member.tenantUserId}>
+                    {member.displayName}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         {actions.map((action) => (
           <Button
             key={action.label}

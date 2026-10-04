@@ -78,7 +78,7 @@ export class AppointmentsController {
   }
 
   @Post("locations/:locationId/closures")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   createClosure(
     @CurrentUser() user: RequestUser,
     @Param("locationId") locationId: string,
@@ -89,7 +89,7 @@ export class AppointmentsController {
   }
 
   @Delete("locations/:locationId/closures/:closureId")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteClosure(
     @CurrentUser() user: RequestUser,

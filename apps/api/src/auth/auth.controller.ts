@@ -86,9 +86,10 @@ export class AuthController {
     await this.authService.logout(body.refreshToken);
   }
 
+  /** The signed-in member's profile for the app shell (Phase 17). */
   @Get("me")
-  me(@CurrentUser() user: RequestUser): RequestUser {
-    return user;
+  me(@CurrentUser() user: RequestUser) {
+    return this.authService.getProfile(user);
   }
 
   // --- Authenticator app login (Phase 15, ADR-014). Per person, not per

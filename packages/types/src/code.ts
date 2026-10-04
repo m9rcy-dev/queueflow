@@ -84,6 +84,8 @@ export interface DisplaySnapshot {
   queue: { name: string; status: "ACTIVE" | "PAUSED" | "CLOSED" };
   /** One entry per currently CALLED/SERVING ticket — more than one when servingCapacity > 1 (multiple chairs/counters). */
   nowServing: Array<{ ticketNumber: number; serviceName: string }>;
-  /** The next few WAITING ticket numbers, in call order — numbers only, never names. */
+  /** Up to 12 WAITING ticket numbers, in call order (G-25's order) — numbers only, never names. */
   next: number[];
+  /** Everyone waiting, including those beyond the listed `next` tickets. */
+  waitingCount: number;
 }

@@ -99,6 +99,7 @@ describe("DisplaysService", () => {
           { ticketNumber: 13, serviceName: "Beard Trim" },
         ],
         next: [14, 15],
+        waitingCount: 2,
       });
       // Neither query ever asked for a customer or staff field in the first place.
       const [nowServingCall, nextCall] = prisma.queueEntry.findMany.mock.calls;

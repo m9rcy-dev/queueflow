@@ -13,11 +13,14 @@ export function BusinessLogo({
   name,
   size = "md",
   standalone = false,
+  centered = true,
 }: {
   logoPath: string | null;
   name: string;
   size?: "md" | "lg";
   standalone?: boolean;
+  /** Centered above a page heading by default; false when it sits beside the name (the TV board's header). */
+  centered?: boolean;
 }) {
   if (!logoPath) return null;
   return (
@@ -25,7 +28,7 @@ export function BusinessLogo({
       src={`${API_URL}${logoPath}`}
       alt={standalone ? `${name} logo` : ""}
       className={[
-        "mx-auto object-contain",
+        centered ? "mx-auto object-contain" : "shrink-0 object-contain",
         size === "lg" ? "max-h-28 max-w-[16rem]" : "max-h-16 max-w-[12rem]",
       ].join(" ")}
     />

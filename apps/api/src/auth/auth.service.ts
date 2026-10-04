@@ -13,6 +13,7 @@ import type {
   AuthSuccessResponse,
   DeviceContextResponse,
   InviteDetails,
+  StaffProfile,
   LoginVerifyResponse,
   MembershipSummary,
   TenantSummary,
@@ -23,6 +24,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { PinService } from "./pin.service";
 import { TokenService } from "./token.service";
+import type { RequestUser } from "./request-user.interface";
 import { AuthenticatorService } from "../authenticator/authenticator.service";
 import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
@@ -580,6 +582,25 @@ export class AuthService {
       throw invalidOrExpiredInvite();
     }
     return invite;
+  }
+
+  async getProfile(user: RequestUser): Promise<StaffProfile> {
+    const membership = await this.prisma.tenantUser.findUniqueOrThrow({
+      where: { id: user.tenantUserId },
+      include: {
+        user: { select: { displayName: true, email: true } },
+        tenant: { select: { name: true, appointmentEnabled: true } },
+        location: { select: { name: true } },
+      },
+    });
+    return {
+      ...user,
+      displayName: membership.user.displayName,
+      email: membership.user.email,
+      tenantName: membership.tenant.name,
+      locationName: membership.location?.name ?? null,
+      appointmentEnabled: membership.tenant.appointmentEnabled,
+    };
   }
 
   /** Authenticator setup step 1 for the logged-in staff member — the app shows "QueueFlow" with their email beneath (ADR-014). */

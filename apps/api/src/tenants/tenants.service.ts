@@ -53,10 +53,10 @@ export class TenantsService {
   }
 
   /** Current staff roster, with each Manager/Staff member's location (ADR-015). Removed members aren't listed. */
-  async listMembers(tenantId: string): Promise<TenantMemberSummary[]> {
+  async listMembers(tenantId: string, onlyLocationId?: string): Promise<TenantMemberSummary[]> {
     await this.findOwnedTenant(tenantId);
     const memberships = await this.prisma.tenantUser.findMany({
-      where: { tenantId, removedAt: null },
+      where: { tenantId, removedAt: null, ...(onlyLocationId && { locationId: onlyLocationId }) },
       include: {
         user: { select: { displayName: true, email: true } },
         location: { select: { id: true, name: true } },
@@ -99,12 +99,9 @@ export class TenantsService {
    * history they're attributed to keeps their name (D-03a). Re-inviting
    * the same email reactivates the membership.
    */
-  async removeMember(
-    tenantId: string,
-    actorTenantUserId: string,
-    tenantUserId: string,
-  ): Promise<void> {
-    const member = await this.findChangeableMember(tenantId, actorTenantUserId, tenantUserId);
+  async removeMember(tenantId: string, actor: TeamActor, tenantUserId: string): Promise<void> {
+    const member = await this.findChangeableMember(tenantId, actor.tenantUserId, tenantUserId);
+    assertManagerMayManage(actor, member);
     await this.prisma.$transaction([
       this.prisma.tenantUser.update({
         where: { id: member.id },
@@ -117,7 +114,26 @@ export class TenantsService {
     ]);
   }
 
-  async createInvite(tenantId: string, input: CreateInviteInput): Promise<InviteSummary> {
+  /**
+   * A manager (Phase 17, ADR-016) may only invite STAFF, and only to their
+   * own location — anything else is refused before an invite exists.
+   */
+  async createInvite(
+    tenantId: string,
+    input: CreateInviteInput,
+    actor: TeamActor,
+  ): Promise<InviteSummary> {
+    if (actor.role === "MANAGER") {
+      if (input.role !== "STAFF") {
+        throw new ForbiddenException({
+          code: "MANAGER_CAN_ONLY_INVITE_STAFF",
+          message: "Managers can invite staff only. Ask the owner or an admin for other roles.",
+        });
+      }
+      if (input.locationId !== actor.locationId) {
+        throw new NotFoundException({ code: "LOCATION_NOT_FOUND", message: "Location not found." });
+      }
+    }
     const tenant = await this.findOwnedTenant(tenantId);
 
     const existingMembership = await this.prisma.tenantUser.findFirst({
@@ -158,20 +174,21 @@ export class TenantsService {
     return toInviteSummary(invite);
   }
 
-  async listInvites(tenantId: string): Promise<InviteSummary[]> {
+  async listInvites(tenantId: string, onlyLocationId?: string): Promise<InviteSummary[]> {
     await this.findOwnedTenant(tenantId);
     const invites = await this.prisma.tenantInvite.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(onlyLocationId && { locationId: onlyLocationId }) },
       include: { location: { select: { id: true, name: true } } },
       orderBy: { createdAt: "desc" },
     });
     return invites.map(toInviteSummary);
   }
 
-  async revokeInvite(tenantId: string, inviteId: string): Promise<void> {
+  async revokeInvite(tenantId: string, inviteId: string, actor: TeamActor): Promise<void> {
     await this.findOwnedTenant(tenantId);
     const invite = await this.prisma.tenantInvite.findFirst({ where: { id: inviteId, tenantId } });
-    if (!invite) {
+    // A manager only sees their own location's invites, so anything else is "not found".
+    if (!invite || (actor.role === "MANAGER" && invite.locationId !== actor.locationId)) {
       throw new NotFoundException({ code: "INVITE_NOT_FOUND", message: "Invite not found." });
     }
     await this.prisma.tenantInvite.update({
@@ -247,6 +264,34 @@ function toTenantSummary(tenant: {
     appointmentEnabled: tenant.appointmentEnabled,
     logoPath: tenantLogoPath(tenant.id, tenant.logo),
   };
+}
+
+/** Who's acting on the team (the signed-in member). */
+export interface TeamActor {
+  tenantUserId: string;
+  role: TenantMemberSummary["role"];
+  locationId: string | null;
+}
+
+/**
+ * Managers (Phase 17, ADR-016) may remove STAFF at their own location only.
+ * Another location's member is "not found" (they can't see them);
+ * a fellow manager is forbidden.
+ */
+function assertManagerMayManage(
+  actor: TeamActor,
+  member: { role: string; locationId: string | null },
+): void {
+  if (actor.role !== "MANAGER") return;
+  if (member.locationId !== actor.locationId) {
+    throw new NotFoundException({ code: "MEMBER_NOT_FOUND", message: "Staff member not found." });
+  }
+  if (member.role !== "STAFF") {
+    throw new ForbiddenException({
+      code: "MANAGER_CAN_ONLY_MANAGE_STAFF",
+      message: "Managers can remove staff only. Ask the owner or an admin.",
+    });
+  }
 }
 
 function toMemberSummary(m: {

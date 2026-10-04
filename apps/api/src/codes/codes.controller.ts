@@ -17,7 +17,7 @@ export class QueueCodesController {
   ) {}
 
   @Post()
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   async create(
     @CurrentUser() user: RequestUser,
     @Param("queueId") queueId: string,
@@ -34,7 +34,7 @@ export class QueueCodesController {
   }
 
   @Post(":codeId/deactivate")
-  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER")
   @HttpCode(HttpStatus.NO_CONTENT)
   async deactivate(
     @CurrentUser() user: RequestUser,

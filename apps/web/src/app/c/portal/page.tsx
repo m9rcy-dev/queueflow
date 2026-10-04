@@ -1,20 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Badge, Button, Card, type BadgeTone } from "@queueflow/ui";
 import Link from "next/link";
-import type {
-  CustomerActiveEntry,
-  CustomerPortalSummary,
-  CustomerUpcomingAppointment,
-  QueueEntryStatus,
-} from "@queueflow/types";
+import { Badge, Button, Card, type BadgeTone } from "@queueflow/ui";
+import type { CustomerVisit, QueueEntryStatus } from "@queueflow/types";
 import { customerApi } from "../../../lib/customer-api-client";
-import { TicketQrCode } from "../../../components/TicketQrCode";
-import { formatDateTimeIn } from "../../../lib/appointment-format";
-import { AuthenticatorSettings } from "../../../components/AuthenticatorSettings";
-import { BusinessLogo } from "../../../components/BusinessLogo";
+import { useCustomerSession } from "../../../lib/use-customer-session";
+import { CustomerShell } from "../../../components/CustomerShell";
 
 const STATUS_COPY: Record<QueueEntryStatus, { title: string; tone: BadgeTone }> = {
   WAITING: { title: "Waiting", tone: "info" },
@@ -26,152 +18,108 @@ const STATUS_COPY: Record<QueueEntryStatus, { title: string; tone: BadgeTone }> 
   NO_SHOW: { title: "Missed your turn", tone: "danger" },
 };
 
-/**
- * The customer's own portal (Phase 9, G-55) — their personal identity code
- * (G-52) plus whatever they're currently queued for at this business. Not
- * SSE-live like the anonymous ticket page (queue/t/[token]) — a customer
- * lands here from their own bookmark/app, not a fresh scan, so a plain
- * fetch-on-load plus a manual refresh is enough for Phase 9's scope.
- */
-export default function CustomerPortalPage() {
-  const router = useRouter();
-  const [summary, setSummary] = useState<CustomerPortalSummary | null>(null);
-  const [activeEntry, setActiveEntry] = useState<CustomerActiveEntry | null>(null);
-  const [appointments, setAppointments] = useState<CustomerUpcomingAppointment[]>([]);
-  const [loading, setLoading] = useState(true);
+const ACTIVE: QueueEntryStatus[] = ["WAITING", "CALLED", "SERVING", "SKIPPED"];
+
+/** Queues (Phase 17): anything live at the top (opens the live ticket), then the last 10 visits. */
+export default function CustomerQueuesPage() {
+  const [summary] = useCustomerSession();
+  const [visits, setVisits] = useState<CustomerVisit[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [regenerating, setRegenerating] = useState(false);
+
+  async function load(): Promise<void> {
+    setVisits(await customerApi.getVisits().catch(() => []));
+  }
 
   useEffect(() => {
-    (async () => {
-      const restored = await customerApi.restoreSession().catch(() => null);
-      if (!restored) {
-        router.push("/");
-        return;
-      }
-      setSummary(restored);
-      const [entry, upcoming] = await Promise.all([
-        customerApi.getActiveEntry().catch(() => null),
-        customerApi.getUpcomingAppointments().catch(() => []),
-      ]);
-      setActiveEntry(entry);
-      setAppointments(upcoming);
-      setLoading(false);
-    })();
-    // `router` from useRouter() is a stable reference across re-renders in
-    // the App Router — safe to run this effect once per mount only.
+    if (summary) void load();
+    // Only once the session exists.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [summary !== null]);
 
-  async function handleRefresh(): Promise<void> {
-    setRefreshing(true);
-    try {
-      const entry = await customerApi.getActiveEntry().catch(() => null);
-      setActiveEntry(entry);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  async function handleRegenerate(): Promise<void> {
-    setRegenerating(true);
-    try {
-      const { publicCode } = await customerApi.regenerateIdentityCode();
-      setSummary((prev) => (prev ? { ...prev, identityCode: publicCode } : prev));
-    } finally {
-      setRegenerating(false);
-    }
-  }
-
-  async function handleLogout(): Promise<void> {
-    await customerApi.logout();
-    router.push("/");
-  }
-
-  if (loading || !summary) {
+  if (!summary || !visits) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg p-8 text-center text-text-secondary">
+      <main className="flex min-h-screen items-center justify-center bg-bg text-text-secondary">
         Loading…
       </main>
     );
   }
 
-  return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col items-center gap-6 bg-bg p-6 pt-10 text-center">
-      <div>
-        <BusinessLogo logoPath={summary.tenant.logoPath} name={summary.tenant.name} />
-        <h1 className="text-2xl font-semibold text-text-primary">{summary.tenant.name}</h1>
-        <p className="text-text-secondary">Hi, {summary.customer.firstName ?? "there"}</p>
-      </div>
+  const live = visits.filter((v) => ACTIVE.includes(v.status));
+  const past = visits.filter((v) => !ACTIVE.includes(v.status));
+  const dateTime = (iso: string) =>
+    new Date(iso).toLocaleString([], {
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
 
-      {activeEntry && (
-        <Card className="flex w-full flex-col items-center gap-3">
-          <Badge tone={STATUS_COPY[activeEntry.status].tone}>
-            {STATUS_COPY[activeEntry.status].title}
-          </Badge>
-          <p className="text-4xl font-semibold text-text-primary">#{activeEntry.ticketNumber}</p>
-          <p className="text-text-secondary">{activeEntry.queueName}</p>
-          {activeEntry.status === "WAITING" && (
-            <div className="text-sm text-text-secondary">
-              {activeEntry.position !== null && <p>{activeEntry.position - 1} people ahead</p>}
-              {activeEntry.estimatedWaitMinutes !== null && (
-                <p>Estimated wait ~{activeEntry.estimatedWaitMinutes} minutes</p>
-              )}
-            </div>
-          )}
-          <Button variant="secondary" onClick={handleRefresh} disabled={refreshing}>
+  return (
+    <CustomerShell summary={summary} title="Queues">
+      {live.length === 0 ? (
+        <Card>
+          <p className="text-text-secondary">
+            You&apos;re not in a queue right now. Scan the QR poster at {summary.tenant.name}, or
+            show your code (under QR Codes) at the counter.
+          </p>
+        </Card>
+      ) : (
+        live.map((visit) => (
+          <Card key={visit.id} className="flex flex-col items-center gap-3 text-center">
+            <Badge tone={STATUS_COPY[visit.status].tone}>{STATUS_COPY[visit.status].title}</Badge>
+            <p className="text-4xl font-semibold text-text-primary">#{visit.ticketNumber}</p>
+            <p className="text-text-secondary">
+              {visit.serviceName} · {visit.queueName}, {visit.locationName}
+            </p>
+            {visit.publicToken && (
+              <Link
+                href={`/queue/t/${visit.publicToken}`}
+                className="inline-flex min-h-[48px] items-center rounded-md bg-primary px-6 font-medium text-white hover:bg-primary-hover"
+              >
+                See your place in the queue
+              </Link>
+            )}
+          </Card>
+        ))
+      )}
+
+      <Card className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">
+            Recent visits
+          </h2>
+          <Button
+            variant="secondary"
+            className="min-h-[36px] px-3 py-1 text-sm"
+            disabled={refreshing}
+            onClick={async () => {
+              setRefreshing(true);
+              await load();
+              setRefreshing(false);
+            }}
+          >
             {refreshing ? "Refreshing…" : "Refresh"}
           </Button>
-        </Card>
-      )}
-
-      {appointments.length > 0 && (
-        <Card className="flex w-full flex-col gap-3 text-left">
-          <h2 className="text-lg font-medium text-text-primary">Upcoming appointments</h2>
-          {appointments.map((appointment) => (
-            <Link
-              key={appointment.publicToken}
-              href={`/appointment/${appointment.publicToken}`}
-              className="rounded-md border border-border px-4 py-3 hover:bg-bg"
-            >
+        </div>
+        {past.length === 0 && <p className="text-sm text-text-secondary">No past visits yet.</p>}
+        {past.map((visit) => (
+          <div
+            key={visit.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-4 py-3"
+          >
+            <div>
               <p className="font-medium text-text-primary">
-                {formatDateTimeIn(appointment.startsAt, appointment.timezone)}
+                {visit.serviceName} · {visit.locationName}
               </p>
               <p className="text-sm text-text-secondary">
-                {appointment.service.name} · {appointment.location.name}
+                {dateTime(visit.completedAt ?? visit.joinedAt)}
+                {visit.servedByName ? ` · with ${visit.servedByName}` : ""}
               </p>
-            </Link>
-          ))}
-        </Card>
-      )}
-
-      <Card className="flex w-full flex-col items-center gap-3">
-        <h2 className="text-lg font-medium text-text-primary">Your code</h2>
-        <p className="text-sm text-text-secondary">
-          Show this at the counter to check in faster next time.
-        </p>
-        <TicketQrCode url={summary.identityCode} />
-        {/* Phase 12 (G-39): this code is now a long, high-entropy token, not
-            the short printed alphabet it used to be — meant to be scanned,
-            not read aloud or typed, so it's shown small and allowed to wrap
-            rather than forced onto one line. */}
-        <p className="max-w-full break-all px-4 text-center font-mono text-xs text-text-secondary">
-          {summary.identityCode}
-        </p>
-        <Button variant="secondary" onClick={handleRegenerate} disabled={regenerating}>
-          {regenerating ? "Regenerating…" : "Lost or shared it? Get a new code"}
-        </Button>
+            </div>
+            <Badge tone={STATUS_COPY[visit.status].tone}>{STATUS_COPY[visit.status].title}</Badge>
+          </div>
+        ))}
       </Card>
-
-      <AuthenticatorSettings api={customerApi} />
-
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="text-sm text-text-secondary underline"
-      >
-        Log out
-      </button>
-    </main>
+    </CustomerShell>
   );
 }

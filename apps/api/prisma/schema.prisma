@@ -128,6 +128,7 @@ model TenantUser {
   location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
 
   assignedQueueEntries  QueueEntry[]
+  servedQueueEntries    QueueEntry[]  @relation("QueueEntryServedBy")
   bookedAppointments    Appointment[] @relation("AppointmentBookedBy")
   cancelledAppointments Appointment[] @relation("AppointmentCancelledBy")
 
@@ -524,6 +525,11 @@ model QueueEntry {
   // (D-03a) once Phase 5 builds the staff device; the field exists now so
   // Phase 5 doesn't need a schema change.
   assignedStaffId String?
+  // Phase 17 (ADR-016): who actually did the work — set by whoever presses
+  // Start, or by a hand-over. Separate from assignedStaffId (who called),
+  // because the person calling isn't always the one serving; this is what
+  // per-staff reporting and pay (Phase 19) will count.
+  servedByStaffId String?
 
   // Opaque, high-entropy (G-39) — the anonymous customer's only way back to
   // their own ticket (G-45). Never a sequential/guessable ID.
@@ -588,6 +594,7 @@ model QueueEntry {
   service       Service              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
   assignedStaff TenantUser?          @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  servedByStaff TenantUser?          @relation("QueueEntryServedBy", fields: [servedByStaffId], references: [id], onDelete: SetNull)
   notifications NotificationOutbox[]
   // The GUEST_CARD code currently occupied by this entry, if any (Phase 10,
   // D-14) — the FK lives on Code.currentEntryId; this is just the reverse

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { BusinessHoursEntry, LocationSummary } from "@queueflow/types";
+import type { BusinessHoursEntry, LocationSummary, TeamMemberOption } from "@queueflow/types";
 import type {
   CreateLocationInput,
   ReplaceBusinessHoursInput,
@@ -93,6 +93,25 @@ export class LocationsService {
       }),
     ]);
     return this.getBusinessHours(tenantId, locationId);
+  }
+
+  /** Who can serve at this location (Phase 17 hand-over picker): its own staff plus owner/admins, active members only. */
+  async listTeam(tenantId: string, locationId: string): Promise<TeamMemberOption[]> {
+    await this.findOwnedLocation(tenantId, locationId);
+    const members = await this.prisma.tenantUser.findMany({
+      where: {
+        tenantId,
+        removedAt: null,
+        OR: [{ locationId }, { role: { in: ["TENANT_OWNER", "TENANT_ADMIN"] } }],
+      },
+      include: { user: { select: { displayName: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    return members.map((m) => ({
+      tenantUserId: m.id,
+      displayName: m.user.displayName,
+      role: m.role,
+    }));
   }
 
   /** Public (like QueuesService.findOwnedQueue) so other services — GuestCardsService (Phase 10) — can ownership-check a locationId without duplicating this query. */

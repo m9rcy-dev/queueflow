@@ -7,6 +7,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { CodeSummary, QueueStatus, QueueSummary, ServiceSummary } from "@queueflow/types";
 import { staffApi } from "../../../../../lib/staff-api-client";
 import { useStaffSession } from "../../../../../lib/use-staff-session";
+import { AppShell } from "../../../../../components/AppShell";
 import { TicketQrCode } from "../../../../../components/TicketQrCode";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -128,9 +129,10 @@ export default function QueueSettingsPage() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
-      <header className="flex items-center justify-between pt-4">
-        <h1 className="text-xl font-semibold text-text-primary">{queue.name} — Settings</h1>
+    <AppShell
+      session={session}
+      title={`${queue.name} — Settings`}
+      actions={
         <button
           type="button"
           onClick={() => router.push(`/admin/queues/${queueId}`)}
@@ -138,8 +140,8 @@ export default function QueueSettingsPage() {
         >
           Back to dashboard
         </button>
-      </header>
-
+      }
+    >
       <Card className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -325,6 +327,6 @@ export default function QueueSettingsPage() {
           </Button>
         )}
       </Card>
-    </main>
+    </AppShell>
   );
 }

@@ -5,6 +5,7 @@ import type {
   CustomerAuthResponse,
   CustomerPortalSummary,
   CustomerUpcomingAppointment,
+  CustomerVisit,
 } from "@queueflow/types";
 import type { CustomerSignupInput } from "@queueflow/validation";
 import { ApiError } from "./errors";
@@ -110,6 +111,11 @@ export class CustomerApiClient {
 
   getActiveEntry(): Promise<CustomerActiveEntry | null> {
     return this.request("/customers/me/active-entry");
+  }
+
+  /** Phase 17 — the Queues section: recent visits, newest first (live ones included). */
+  getVisits(): Promise<CustomerVisit[]> {
+    return this.request("/customers/me/visits");
   }
 
   getUpcomingAppointments(): Promise<CustomerUpcomingAppointment[]> {
