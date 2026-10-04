@@ -5,6 +5,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { TokenService } from "../auth/token.service";
 import { EmailProvider } from "../notifications/email-provider";
 import { CustomersService } from "../customers/customers.service";
+import { AuthenticatorService } from "../authenticator/authenticator.service";
 
 const MAX_VERIFY_ATTEMPTS = 5;
 
@@ -32,6 +33,7 @@ export class CustomerAuthService {
     private readonly tokenService: TokenService,
     private readonly emailProvider: EmailProvider,
     private readonly customersService: CustomersService,
+    private readonly authenticator: AuthenticatorService,
   ) {}
 
   /** Self-service signup via a GENERAL code (D-10) — creates the account, then sends a login code to prove the customer actually owns that inbox before any session is issued. */
@@ -40,12 +42,17 @@ export class CustomerAuthService {
     await this.issueAndSendLoginCode(customer.id, input.email);
   }
 
-  /** Deliberately silent if the email doesn't exist for this tenant (G-05) — same response either way. */
-  async requestLoginCode(tenantId: string, email: string): Promise<void> {
+  /**
+   * Deliberately silent if the email doesn't exist for this tenant (G-05) —
+   * same response either way. No email for an authenticator-app account
+   * unless `forceEmail` (Phase 15, ADR-014 — same rule as staff login).
+   */
+  async requestLoginCode(tenantId: string, email: string, forceEmail = false): Promise<void> {
     const customer = await this.prisma.customer.findUnique({
       where: { tenantId_email: { tenantId, email } },
     });
     if (!customer) return;
+    if (!forceEmail && (await this.authenticator.isEnabled({ customerId: customer.id }))) return;
     await this.issueAndSendLoginCode(customer.id, email);
   }
 
@@ -61,29 +68,54 @@ export class CustomerAuthService {
       throw invalidLoginCode();
     }
 
+    // Authenticator first, then the emailed code — same order and failure
+    // counting as staff login (AuthService.verifyLoginCode, ADR-014).
+    const owner = { customerId: customer.id };
+    const authenticatorResult = await this.authenticator.check(owner, submittedCode);
+    if (authenticatorResult !== "valid") {
+      const emailCodeMatched = await this.consumeEmailedCode(customer.id, submittedCode);
+      if (!emailCodeMatched) {
+        if (authenticatorResult === "invalid") await this.authenticator.recordFailure(owner);
+        throw invalidLoginCode();
+      }
+    }
+
+    return this.issueSession(customer);
+  }
+
+  /** Authenticator setup step 1 — the app entry names the business, since a customer account belongs to one (D-09). */
+  async beginAuthenticatorSetup(customerId: string) {
+    const customer = await this.prisma.customer.findUniqueOrThrow({
+      where: { id: customerId },
+      include: { tenant: { select: { name: true } } },
+    });
+    return this.authenticator.beginSetup(
+      { customerId },
+      `QueueFlow (${customer.tenant.name})`,
+      customer.email ?? customer.phoneE164,
+    );
+  }
+
+  private async consumeEmailedCode(customerId: string, submittedCode: string): Promise<boolean> {
     const latestCode = await this.prisma.customerLoginCode.findFirst({
-      where: { customerId: customer.id, consumedAt: null, expiresAt: { gt: new Date() } },
+      where: { customerId, consumedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" },
     });
     if (!latestCode || latestCode.attempts >= MAX_VERIFY_ATTEMPTS) {
-      throw invalidLoginCode();
+      return false;
     }
-
-    const submittedHash = this.tokenService.hashLoginCode(submittedCode);
-    if (submittedHash !== latestCode.codeHash) {
+    if (this.tokenService.hashLoginCode(submittedCode) !== latestCode.codeHash) {
       await this.prisma.customerLoginCode.update({
         where: { id: latestCode.id },
         data: { attempts: { increment: 1 } },
       });
-      throw invalidLoginCode();
+      return false;
     }
-
     await this.prisma.customerLoginCode.update({
       where: { id: latestCode.id },
       data: { consumedAt: new Date() },
     });
-
-    return this.issueSession(customer);
+    return true;
   }
 
   async refresh(refreshToken: string): Promise<CustomerAuthTokens> {

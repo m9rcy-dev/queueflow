@@ -1,6 +1,6 @@
 # ADR-004: Authentication Strategy — OTP-Only
 
-**Status:** Accepted
+**Status:** Accepted — amended by ADR-014 (authenticator-app codes as an optional primary method, 2026-10-04)
 **Date:** 2026-09-27
 **Related:** plan-review.md D-03, D-03a, G-02, G-05–G-09
 

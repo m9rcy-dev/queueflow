@@ -21,6 +21,8 @@ export type CustomerSignupInput = z.infer<typeof customerSignupSchema>;
 export const customerRequestLoginCodeSchema = z.object({
   tenantId: z.string().uuid(),
   email: z.string().trim().toLowerCase().email(),
+  /** Phase 15: "Email me a code instead". */
+  forceEmail: z.boolean().optional(),
 });
 export type CustomerRequestLoginCodeInput = z.infer<typeof customerRequestLoginCodeSchema>;
 

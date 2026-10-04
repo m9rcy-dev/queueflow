@@ -13,6 +13,7 @@ import type {
 import { customerApi } from "../../../lib/customer-api-client";
 import { TicketQrCode } from "../../../components/TicketQrCode";
 import { formatDateTimeIn } from "../../../lib/appointment-format";
+import { AuthenticatorSettings } from "../../../components/AuthenticatorSettings";
 
 const STATUS_COPY: Record<QueueEntryStatus, { title: string; tone: BadgeTone }> = {
   WAITING: { title: "Waiting", tone: "info" },
@@ -159,6 +160,8 @@ export default function CustomerPortalPage() {
           {regenerating ? "Regenerating…" : "Lost or shared it? Get a new code"}
         </Button>
       </Card>
+
+      <AuthenticatorSettings api={customerApi} />
 
       <button
         type="button"

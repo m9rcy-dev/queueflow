@@ -1,7 +1,9 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import {
   businessSignupSchema,
+  confirmAuthenticatorSchema,
+  type ConfirmAuthenticatorInput,
   deviceContextSchema,
   logoutSchema,
   refreshTokenSchema,
@@ -23,6 +25,7 @@ import {
   type VerifyLoginCodeInput,
 } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { AuthenticatorService } from "../authenticator/authenticator.service";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./current-user.decorator";
 import { Public } from "./public.decorator";
@@ -30,7 +33,10 @@ import type { RequestUser } from "./request-user.interface";
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly authenticator: AuthenticatorService,
+  ) {}
 
   @Public()
   @Post("business-signup")
@@ -48,7 +54,7 @@ export class AuthController {
   async requestLoginCode(
     @Body(new ZodValidationPipe(requestLoginCodeSchema)) body: RequestLoginCodeInput,
   ): Promise<{ message: string }> {
-    await this.authService.requestLoginCode(body.email);
+    await this.authService.requestLoginCode(body.email, body.forceEmail);
     // Same response whether or not the email exists (G-05).
     return { message: "If that email has an account, a login code has been sent." };
   }
@@ -81,6 +87,32 @@ export class AuthController {
   @Get("me")
   me(@CurrentUser() user: RequestUser): RequestUser {
     return user;
+  }
+
+  // --- Authenticator app login (Phase 15, ADR-014). Per person, not per
+  // business: a staff User's login spans every tenant they belong to. ---
+
+  @Get("me/authenticator")
+  authenticatorStatus(@CurrentUser() user: RequestUser) {
+    return this.authenticator.getStatus({ userId: user.userId });
+  }
+
+  @Post("me/authenticator/setup")
+  beginAuthenticatorSetup(@CurrentUser() user: RequestUser) {
+    return this.authService.beginAuthenticatorSetup(user.userId);
+  }
+
+  @Post("me/authenticator/confirm")
+  confirmAuthenticator(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(confirmAuthenticatorSchema)) body: ConfirmAuthenticatorInput,
+  ) {
+    return this.authenticator.confirmSetup({ userId: user.userId }, body.code);
+  }
+
+  @Delete("me/authenticator")
+  disableAuthenticator(@CurrentUser() user: RequestUser) {
+    return this.authenticator.disable({ userId: user.userId });
   }
 
   /** "Trust this device" (D-03a) — an already-logged-in staff member opts a shared counter tablet into PIN switching. */

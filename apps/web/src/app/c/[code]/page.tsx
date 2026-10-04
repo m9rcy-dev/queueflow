@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button, Card, Input } from "@queueflow/ui";
+import { Button, Card, Input, OtpCodeInput } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
 import type { GeneralCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
@@ -130,6 +130,13 @@ export default function CustomerSignupLandingPage() {
       {step.name === "otp-code" && tenant && (
         <CodeStep
           email={step.name === "otp-code" ? step.email : ""}
+          onEmailInstead={() =>
+            customerApi.requestLoginCode(
+              tenant.id,
+              step.name === "otp-code" ? step.email : "",
+              true,
+            )
+          }
           submitting={submitting}
           error={error}
           onSubmit={async (otpCode) => {
@@ -251,43 +258,63 @@ function LoginForm({
   );
 }
 
+/** Same one-box, both-kinds-of-code step as staff login (Phase 15) — see admin/login's CodeStep. */
 function CodeStep({
   email,
   submitting,
   error,
   onSubmit,
+  onEmailInstead,
 }: {
   email: string;
   submitting: boolean;
   error: string | null;
   onSubmit: (code: string) => void;
+  onEmailInstead: () => Promise<void>;
 }) {
   const [code, setCode] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
+
+  useEffect(() => {
+    if (error) setCode("");
+  }, [error]);
+
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
-    onSubmit(code);
+    if (code.length === 6) onSubmit(code);
   }
+
   return (
     <Card className="flex flex-col gap-4">
       <p className="text-sm text-text-secondary">
-        We sent a 6-digit code to <strong>{email}</strong>.
+        Enter the 6-digit code from your authenticator app, or the one we emailed to{" "}
+        <strong>{email}</strong>.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Input
+        <OtpCodeInput
           label="Login code"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          maxLength={6}
           value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+          onChange={setCode}
+          onComplete={onSubmit}
+          disabled={submitting}
+          error={error ?? undefined}
           autoFocus
-          required
         />
-        {error && <p className="text-sm text-red-600">{error}</p>}
         <Button type="submit" disabled={submitting || code.length !== 6}>
           {submitting ? "Verifying…" : "Verify"}
         </Button>
       </form>
+      <button
+        type="button"
+        className="text-sm text-text-secondary underline"
+        disabled={emailSent}
+        onClick={async () => {
+          await onEmailInstead().catch(() => undefined);
+          setEmailSent(true);
+        }}
+      >
+        {emailSent ? `Code sent to ${email}` : "Email me a code instead"}
+      </button>
     </Card>
   );
 }

@@ -1,8 +1,8 @@
 # Project Status
 
 Last Updated: 2026-10-04
-Current Phase: Phase 14 — Appointment Check-In & Mixed Queue, done (see `docs/roadmap.md` — 0–14 all done; Phase 15 proposed)
-Current Task: None started — Phase 15 (Authenticator App Login) is proposed with decisions still open
+Current Phase: Phase 15 — Authenticator App Login, done (see `docs/roadmap.md` — 0–15 all done)
+Current Task: None scheduled — candidates below in Next Task
 
 ## Completed
 
@@ -141,12 +141,17 @@ Current Task: None started — Phase 15 (Authenticator App Login) is proposed wi
 
 - Check-in by scanner, link, or staff (idempotent, race-safe, booking's day only); `APPOINTMENT_TICKET` codes; G-25 priority via one shared queue-order rule; no-shows with same-day restore; idempotent reminders; jobs every minute. Detail: [`docs/status/phase-14.md`](docs/status/phase-14.md), ADR-013. 259 unit + 104 integration.
 
+### Phase 15 — Authenticator App Login (TOTP)
+
+- Optional authenticator-app login for staff and customers, emailed code always available; encrypted secret, replay protection, separate lockout; one auto-submitting code box everywhere. Detail: [`docs/status/phase-15.md`](docs/status/phase-15.md), ADR-014. 279 unit + 112 integration.
+
 ## Decisions Made
 
-See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); check-in and walk-in priority (Phase 14, ADR-013 — 10-min window per business, early check-ins wait in FIFO, same-day no-show restore); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
+See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); authenticator-app login as an optional primary method with email fallback (Phase 15, ADR-014); check-in and walk-in priority (Phase 14, ADR-013 — 10-min window per business, early check-ins wait in FIFO, same-day no-show restore); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
 
 ## Known Issues
 
+- **`AUTHENTICATOR_ENCRYPTION_KEY` must be set before any production deploy** (Phase 15) — the API refuses to boot in production without it. No web screen for accepting staff invites exists (API only), so the new code box isn't used there yet.
 - Appointment link check-in doesn't prove physical presence; walk-in "nearly your turn" notifications catch up on the next queue change when a priority window opens, not on the minute (Phase 14 — see `docs/status/phase-14.md`).
 - Appointment booking page day chips start from the browser's today, not the location's; public booking has no per-phone throttle or future-booking cap (Phase 13 — see `docs/status/phase-13.md`).
 - `PROJECT_STATUS.md` itself is ~80KB despite AGENTS.md §8's cap — Phases 0–12's entries are long inline essays. Moving them into `docs/status/phase-NN.md` files (as Phase 13 does) is a worthwhile cleanup, not done here to keep this phase's diff focused.
@@ -170,8 +175,9 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-**Phase 15 — Authenticator App Login (TOTP)** is proposed in `docs/roadmap.md` but not started.
-Settle its open decisions with the user first: (1) replace the email code or add a true second
-factor; (2) lost-phone recovery — recovery codes, email fallback, or both; (3) staff only, or
-customers too. Then amend ADR-004. Alternatively, per the user's walkthrough discussion, real SMS
-and consent text (G-48) are what stand between the app and a pilot business.
+None scheduled. Candidates, roughly in order of what stands between this and a real pilot business:
+
+- **Real SMS** (G-29) — anonymous walk-ins get no real notifications until it exists.
+- **Consent text + versioning** (G-48) — needed before real customer data flows through.
+- **Invite-acceptance screen** — small; would also use the shared code box.
+- Merge the stacked branches (Phases 13 → 14 → 15) into `main`, in order.

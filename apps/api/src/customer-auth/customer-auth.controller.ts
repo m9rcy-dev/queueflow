@@ -37,7 +37,7 @@ export class CustomerAuthController {
     @Body(new ZodValidationPipe(customerRequestLoginCodeSchema))
     body: CustomerRequestLoginCodeInput,
   ): Promise<{ message: string }> {
-    await this.customerAuthService.requestLoginCode(body.tenantId, body.email);
+    await this.customerAuthService.requestLoginCode(body.tenantId, body.email, body.forceEmail);
     return { message: "If that email has an account, a login code has been sent." };
   }
 

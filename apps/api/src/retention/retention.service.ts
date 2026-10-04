@@ -69,8 +69,15 @@ export class RetentionService {
     for (const { id } of stale) {
       await this.prisma.customer.update({
         where: { id },
-        data: { firstName: null, email: null, phoneE164: `anon-${id}` },
+        data: {
+          firstName: null,
+          email: null,
+          phoneE164: `anon-${id}`,
+        },
       });
+      // Phase 15: an anonymized account can't log in, so its authenticator
+      // secret goes too. deleteMany, because most customers never set one up.
+      await this.prisma.authenticatorCredential.deleteMany({ where: { customerId: id } });
       anonymizedCustomerIds.push(id);
     }
 

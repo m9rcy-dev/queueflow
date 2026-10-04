@@ -4,12 +4,17 @@ import { PrismaService } from "../prisma/prisma.service";
 
 describe("RetentionService", () => {
   let service: RetentionService;
-  let prisma: { $queryRaw: jest.Mock; customer: { update: jest.Mock } };
+  let prisma: {
+    $queryRaw: jest.Mock;
+    customer: { update: jest.Mock };
+    authenticatorCredential: { deleteMany: jest.Mock };
+  };
 
   beforeEach(async () => {
     prisma = {
       $queryRaw: jest.fn(),
       customer: { update: jest.fn() },
+      authenticatorCredential: { deleteMany: jest.fn() },
     };
 
     const module = await Test.createTestingModule({

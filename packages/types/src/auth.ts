@@ -93,3 +93,14 @@ export interface DeviceContextResponse {
   tenant: { id: string; name: string };
   staff: DeviceStaffOption[];
 }
+
+/** Phase 15 (ADR-014) — whether an account logs in with an authenticator app instead of an emailed code. */
+export interface AuthenticatorStatus {
+  enabled: boolean;
+}
+
+/** Setup step 1: shown as a QR (otpauthUri) plus the secret for typing in by hand. */
+export interface AuthenticatorSetup {
+  otpauthUri: string;
+  secret: string;
+}

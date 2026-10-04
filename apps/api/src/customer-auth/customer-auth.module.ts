@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { PassportModule } from "@nestjs/passport";
 import { AppointmentsModule } from "../appointments/appointments.module";
 import { AuthModule } from "../auth/auth.module";
+import { AuthenticatorModule } from "../authenticator/authenticator.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { CustomersModule } from "../customers/customers.module";
 import { CustomerAuthController } from "./customer-auth.controller";
@@ -18,7 +19,14 @@ import { CustomerPortalController } from "./customer-portal.controller";
  * CustomersService, never the reverse).
  */
 @Module({
-  imports: [PassportModule, AuthModule, NotificationsModule, CustomersModule, AppointmentsModule],
+  imports: [
+    PassportModule,
+    AuthModule,
+    AuthenticatorModule,
+    NotificationsModule,
+    CustomersModule,
+    AppointmentsModule,
+  ],
   controllers: [CustomerAuthController, CustomerPortalController],
   providers: [CustomerAuthService, CustomerJwtStrategy, CustomerJwtAuthGuard],
 })

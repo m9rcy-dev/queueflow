@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/admin/locations", label: "Locations" },
   { href: "/admin/staff", label: "Staff" },
   { href: "/admin/settings", label: "Settings" },
+  { href: "/admin/account", label: "Account" },
 ] as const;
 
 /**
@@ -19,7 +20,7 @@ const LINKS = [
 export function AdminNav({
   current,
 }: {
-  current: "queues" | "appointments" | "locations" | "staff" | "settings";
+  current: "queues" | "appointments" | "locations" | "staff" | "settings" | "account";
 }) {
   return (
     <nav className="flex gap-4 border-b border-border pb-3 text-sm">

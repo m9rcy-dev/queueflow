@@ -20,6 +20,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { PinService } from "./pin.service";
 import { TokenService } from "./token.service";
+import { AuthenticatorService } from "../authenticator/authenticator.service";
 
 const MAX_VERIFY_ATTEMPTS = 5;
 const MAX_PIN_ATTEMPTS = 5;
@@ -74,6 +75,7 @@ export class AuthService {
     private readonly tokenService: TokenService,
     private readonly mailService: MailService,
     private readonly pinService: PinService,
+    private readonly authenticator: AuthenticatorService,
   ) {}
 
   /**
@@ -113,42 +115,46 @@ export class AuthService {
    * error, no distinguishing response) if the email doesn't exist — sending
    * nothing is fine, since there's no user to notify, but the caller can't
    * tell the difference (G-05).
+   *
+   * Phase 15 (ADR-014): no email is sent when the account logs in with an
+   * authenticator app — unless `forceEmail` ("Email me a code instead"),
+   * which is always honoured, so a lost phone never locks anyone out. The
+   * response is identical either way.
    */
-  async requestLoginCode(email: string): Promise<void> {
+  async requestLoginCode(email: string, forceEmail = false): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
+      return;
+    }
+    if (!forceEmail && (await this.authenticator.isEnabled({ userId: user.id }))) {
       return;
     }
     await this.issueAndSendLoginCode(user.id, user.email);
   }
 
+  /**
+   * One code box, two kinds of code (Phase 15, ADR-014): the authenticator
+   * is checked first, then the latest emailed code. Checking in that order
+   * means typing authenticator codes never burns the emailed code's
+   * attempts; an authenticator failure is only counted once the emailed
+   * code didn't match either.
+   */
   async verifyLoginCode(email: string, submittedCode: string): Promise<LoginVerifyResponse> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
       throw invalidLoginCode();
     }
 
-    const latestCode = await this.prisma.loginCode.findFirst({
-      where: { userId: user.id, consumedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: "desc" },
-    });
-    if (!latestCode || latestCode.attempts >= MAX_VERIFY_ATTEMPTS) {
-      throw invalidLoginCode();
+    const owner = { userId: user.id };
+    const authenticatorResult = await this.authenticator.check(owner, submittedCode);
+    if (authenticatorResult !== "valid") {
+      const emailCodeMatched = await this.consumeEmailedCode(user.id, submittedCode);
+      if (!emailCodeMatched) {
+        if (authenticatorResult === "invalid") await this.authenticator.recordFailure(owner);
+        throw invalidLoginCode();
+      }
     }
 
-    const submittedHash = this.tokenService.hashLoginCode(submittedCode);
-    if (submittedHash !== latestCode.codeHash) {
-      await this.prisma.loginCode.update({
-        where: { id: latestCode.id },
-        data: { attempts: { increment: 1 } },
-      });
-      throw invalidLoginCode();
-    }
-
-    await this.prisma.loginCode.update({
-      where: { id: latestCode.id },
-      data: { consumedAt: new Date() },
-    });
     if (!user.emailVerifiedAt) {
       await this.prisma.user.update({
         where: { id: user.id },
@@ -475,6 +481,35 @@ export class AuthService {
       throw invalidOrExpiredInvite();
     }
     return invite;
+  }
+
+  /** Authenticator setup step 1 for the logged-in staff member — the app shows "QueueFlow" with their email beneath (ADR-014). */
+  async beginAuthenticatorSetup(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    return this.authenticator.beginSetup({ userId }, "QueueFlow", user.email);
+  }
+
+  /** True (and consumed) if `submittedCode` is the user's latest live emailed code; a wrong guess counts against that code's attempts. */
+  private async consumeEmailedCode(userId: string, submittedCode: string): Promise<boolean> {
+    const latestCode = await this.prisma.loginCode.findFirst({
+      where: { userId, consumedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!latestCode || latestCode.attempts >= MAX_VERIFY_ATTEMPTS) {
+      return false;
+    }
+    if (this.tokenService.hashLoginCode(submittedCode) !== latestCode.codeHash) {
+      await this.prisma.loginCode.update({
+        where: { id: latestCode.id },
+        data: { attempts: { increment: 1 } },
+      });
+      return false;
+    }
+    await this.prisma.loginCode.update({
+      where: { id: latestCode.id },
+      data: { consumedAt: new Date() },
+    });
+    return true;
   }
 
   private async issueAndSendLoginCode(userId: string, email: string): Promise<void> {

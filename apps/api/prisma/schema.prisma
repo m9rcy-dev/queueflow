@@ -29,6 +29,7 @@ model User {
   memberships   TenantUser[]
   loginCodes    LoginCode[]
   refreshTokens RefreshToken[]
+  authenticator AuthenticatorCredential?
 
   @@map("users")
 }
@@ -347,10 +348,11 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   entries       QueueEntry[]
   codes         Code[]
   appointments  Appointment[]
+  authenticator AuthenticatorCredential?
   loginCodes    CustomerLoginCode[]
   refreshTokens CustomerRefreshToken[]
 
@@ -823,4 +825,47 @@ model Appointment {
   @@index([locationId, localDate, status])
   @@index([customerId])
   @@map("appointments")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 15 (Authenticator App Login, ADR-014) — a time-based one-time code
+// (RFC 6238) from an authenticator app, as an optional *primary* login
+// method instead of the emailed code. The emailed code always stays
+// available as a fallback (a lost phone never locks anyone out), so this
+// is a convenience, not an extra factor.
+// ---------------------------------------------------------------------------
+
+// Owned by exactly one of a staff User or a Customer account (enforced by
+// AuthenticatorService, not a DB CHECK — same convention as the outbox's
+// subject). One table rather than duplicated columns, so both kinds of
+// account share one implementation.
+model AuthenticatorCredential {
+  id         String  @id @default(uuid())
+  userId     String? @unique
+  customerId String? @unique
+
+  // AES-256-GCM ciphertext of the base32 secret (authenticator-crypto.ts).
+  // Encrypted, not hashed: the server needs the secret itself to compute
+  // the expected code.
+  secretEncrypted        String?
+  // A secret shown during setup but not yet confirmed with a first code —
+  // swapped into secretEncrypted on confirm, so re-setting-up on a new
+  // phone never breaks the working one until the new one is proven.
+  pendingSecretEncrypted String?
+  // Non-null = authenticator is this account's login method.
+  enabledAt              DateTime?
+  // Replay protection: the last 30-second time step accepted. A code is
+  // only accepted for a later step, claimed with a guarded update.
+  lastUsedStep           Int?
+  // Lockout, separate from the emailed code's own attempts (ADR-014).
+  failedAttempts         Int       @default(0)
+  lockedUntil            DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("authenticator_credentials")
 }

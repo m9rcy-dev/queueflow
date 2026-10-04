@@ -1,6 +1,7 @@
 import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { CustomerAuthService } from "./customer-auth.service";
+import { AuthenticatorService } from "../authenticator/authenticator.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { TokenService } from "../auth/token.service";
 import { EmailProvider } from "../notifications/email-provider";
@@ -71,6 +72,15 @@ describe("CustomerAuthService", () => {
         { provide: TokenService, useValue: tokenService },
         { provide: EmailProvider, useValue: emailProvider },
         { provide: CustomersService, useValue: customersService },
+        // No authenticator set up — Phase 15's branches are covered in auth.service.spec and integration.
+        {
+          provide: AuthenticatorService,
+          useValue: {
+            isEnabled: jest.fn().mockResolvedValue(false),
+            check: jest.fn().mockResolvedValue("not-enabled"),
+            recordFailure: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

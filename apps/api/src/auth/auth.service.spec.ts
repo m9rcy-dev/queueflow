@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { AuthService } from "./auth.service";
+import { AuthenticatorService } from "../authenticator/authenticator.service";
 import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { PinService } from "./pin.service";
@@ -21,6 +22,12 @@ describe("AuthService", () => {
   let tokenService: Record<string, jest.Mock>;
   let mailService: Record<string, jest.Mock>;
   let pinService: Record<string, jest.Mock>;
+  let authenticator: {
+    isEnabled: jest.Mock;
+    check: jest.Mock;
+    recordFailure: jest.Mock;
+    beginSetup: jest.Mock;
+  };
 
   const user = { id: "user-1", email: "joe@example.com", displayName: "Joe" };
   const tenant = {
@@ -86,6 +93,13 @@ describe("AuthService", () => {
       sendInviteCode: jest.fn(),
       sendInviteLink: jest.fn(),
     };
+    // Default: no authenticator set up — the Phase 1–14 behaviour.
+    authenticator = {
+      isEnabled: jest.fn().mockResolvedValue(false),
+      check: jest.fn().mockResolvedValue("not-enabled"),
+      recordFailure: jest.fn(),
+      beginSetup: jest.fn(),
+    };
     pinService = {
       hash: jest.fn(async (pin: string) => `hashed-pin-${pin}`),
       verify: jest.fn(async (hash: string, pin: string) => hash === `hashed-pin-${pin}`),
@@ -98,6 +112,7 @@ describe("AuthService", () => {
         { provide: TokenService, useValue: tokenService },
         { provide: MailService, useValue: mailService },
         { provide: PinService, useValue: pinService },
+        { provide: AuthenticatorService, useValue: authenticator },
       ],
     }).compile();
 
@@ -153,6 +168,60 @@ describe("AuthService", () => {
       prisma.user.findUnique.mockResolvedValue(user);
       await service.requestLoginCode(user.email);
       expect(mailService.sendLoginCode).toHaveBeenCalledWith(user.email, "123456");
+    });
+
+    it("sends no email when the account uses an authenticator app (Phase 15)", async () => {
+      prisma.user.findUnique.mockResolvedValue(user);
+      authenticator.isEnabled.mockResolvedValue(true);
+      await service.requestLoginCode(user.email);
+      expect(mailService.sendLoginCode).not.toHaveBeenCalled();
+    });
+
+    it("always emails when asked to ('Email me a code instead'), authenticator or not", async () => {
+      prisma.user.findUnique.mockResolvedValue(user);
+      authenticator.isEnabled.mockResolvedValue(true);
+      await service.requestLoginCode(user.email, true);
+      expect(mailService.sendLoginCode).toHaveBeenCalledWith(user.email, "123456");
+    });
+  });
+
+  describe("verifyLoginCode with an authenticator app (Phase 15)", () => {
+    it("logs in on a valid authenticator code without touching emailed codes", async () => {
+      prisma.user.findUnique.mockResolvedValue(user);
+      authenticator.check.mockResolvedValue("valid");
+      prisma.tenantUser.findMany.mockResolvedValue([
+        { tenantId: tenant.id, role: "TENANT_OWNER", tenant },
+      ]);
+      const result = await service.verifyLoginCode(user.email, "654321");
+      expect(result.requiresTenantSelection).toBe(false);
+      expect(prisma.loginCode.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("counts an authenticator failure only when the emailed code didn't match either", async () => {
+      prisma.user.findUnique.mockResolvedValue(user);
+      authenticator.check.mockResolvedValue("invalid");
+      prisma.loginCode.findFirst.mockResolvedValue(null);
+      await expect(service.verifyLoginCode(user.email, "000000")).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(authenticator.recordFailure).toHaveBeenCalledWith({ userId: user.id });
+    });
+
+    it("still accepts the emailed code when the authenticator is locked, without counting a failure", async () => {
+      prisma.user.findUnique.mockResolvedValue(user);
+      authenticator.check.mockResolvedValue("locked");
+      prisma.loginCode.findFirst.mockResolvedValue({
+        id: "code-1",
+        codeHash: "hashed-123456",
+        attempts: 0,
+      });
+      prisma.tenantUser.findMany.mockResolvedValue([
+        { tenantId: tenant.id, role: "TENANT_OWNER", tenant },
+      ]);
+      await expect(service.verifyLoginCode(user.email, "123456")).resolves.toMatchObject({
+        requiresTenantSelection: false,
+      });
+      expect(authenticator.recordFailure).not.toHaveBeenCalled();
     });
   });
 

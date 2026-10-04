@@ -480,17 +480,17 @@ priority rule (open-window appointments first, early check-ins wait in FIFO); no
 period with same-day staff restore (§77); idempotent reminders (§75); both jobs once a minute on
 `@nestjs/schedule`.
 
-## Proposed
+## Account security
 
 ### Phase 15 — Authenticator App Login (TOTP)
 
-**Status: Not started — decisions open** (proposed 2026-10-04)
+**Status: ✅ Done** (2026-10-04) — see `docs/status/phase-15.md`, ADR-014
 
-A per-user login preference: email code (today) or a time-based code from an authenticator app
-(Google/Microsoft Authenticator etc., RFC 6238). Enrollment shows an `otpauth://` QR, confirmed by
-entering a first code; secret encrypted at rest; recovery codes; same attempt limits as email OTP.
-Fits ADR-004's no-passwords rule but needs an ADR-004 amendment. Open: replace email vs true second
-factor; lost-phone recovery (codes, email fallback, or both); staff only or customers too.
+A per-account login preference: emailed code (default) or a code from an authenticator app (RFC 6238),
+for staff and customers alike. The emailed code always stays available ("Email me a code instead"),
+so it's a convenience, not a second factor. Setup by QR while logged in, confirmed by a first code;
+secret encrypted at rest; replay protection and a separate lockout. Every code box submits by itself
+once 6 digits are typed or pasted.
 
 ---
 
@@ -527,6 +527,6 @@ start from nothing:
 
 ## Count, for reference
 
-**15 phases in the active roadmap (0–14), all done**, plus Phase 15 proposed. Plus 4
+**16 phases in the active roadmap (0–15), all done.** Plus 4
 explicitly deferred workstreams (analytics trends, platform admin, billing, flash-crowd/waiting-room
 queuing) tracked but not scheduled.

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Input } from "@queueflow/ui";
+import { Button, Card, Input, OtpCodeInput } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
 import type { DeviceContextResponse, MembershipSummary } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
@@ -115,6 +115,7 @@ export default function StaffLoginPage() {
           email={step.email}
           submitting={submitting}
           error={error}
+          onEmailInstead={() => staffApi.requestLoginCode(step.email, true)}
           onSubmit={async (code, trustDevice) => {
             setSubmitting(true);
             setError(null);
@@ -289,38 +290,54 @@ function EmailStep({
   );
 }
 
+/**
+ * One code box for both kinds of code (Phase 15): an authenticator-app
+ * account gets no email unless it asks, so the wording covers both without
+ * revealing which this account uses (G-05). Submits itself once 6 digits
+ * are in (OtpCodeInput).
+ */
 function CodeStep({
   email,
   submitting,
   error,
   onSubmit,
+  onEmailInstead,
 }: {
   email: string;
   submitting: boolean;
   error: string | null;
   onSubmit: (code: string, trustDevice: boolean) => void;
+  onEmailInstead: () => Promise<void>;
 }) {
   const [code, setCode] = useState("");
   const [trustDevice, setTrustDevice] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+
+  // A wrong code clears the box, ready for the next paste.
+  useEffect(() => {
+    if (error) setCode("");
+  }, [error]);
+
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
-    onSubmit(code, trustDevice);
+    if (code.length === 6) onSubmit(code, trustDevice);
   }
+
   return (
     <Card className="flex flex-col gap-4">
       <p className="text-sm text-text-secondary">
-        We sent a 6-digit code to <strong>{email}</strong>.
+        Enter the 6-digit code from your authenticator app, or the one we emailed to{" "}
+        <strong>{email}</strong>.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Input
+        <OtpCodeInput
           label="Login code"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          maxLength={6}
           value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+          onChange={setCode}
+          onComplete={(completed) => onSubmit(completed, trustDevice)}
+          disabled={submitting}
+          error={error ?? undefined}
           autoFocus
-          required
         />
         <label className="flex items-center gap-2 text-sm text-text-secondary">
           <input
@@ -330,11 +347,21 @@ function CodeStep({
           />
           Remember this device for quick staff PIN switching
         </label>
-        {error && <p className="text-sm text-red-600">{error}</p>}
         <Button type="submit" disabled={submitting || code.length !== 6}>
           {submitting ? "Verifying…" : "Verify"}
         </Button>
       </form>
+      <button
+        type="button"
+        className="text-sm text-text-secondary underline"
+        disabled={emailSent}
+        onClick={async () => {
+          await onEmailInstead().catch(() => undefined);
+          setEmailSent(true);
+        }}
+      >
+        {emailSent ? `Code sent to ${email}` : "Email me a code instead"}
+      </button>
     </Card>
   );
 }

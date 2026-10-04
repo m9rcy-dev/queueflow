@@ -1,6 +1,8 @@
 import type {
   AppointmentCalendarDay,
   AppointmentSettings,
+  AuthenticatorSetup,
+  AuthenticatorStatus,
   AuthSuccessResponse,
   BookAppointmentResponse,
   CreateClosureResponse,
@@ -93,8 +95,30 @@ export class StaffApiClient {
     this.accessToken = token;
   }
 
-  async requestLoginCode(email: string): Promise<void> {
-    await this.request<void>("/auth/login/request", { method: "POST", body: { email } });
+  /** `forceEmail` = "Email me a code instead" — sends one even when the account uses an authenticator app (Phase 15). */
+  async requestLoginCode(email: string, forceEmail = false): Promise<void> {
+    await this.request<void>("/auth/login/request", {
+      method: "POST",
+      body: forceEmail ? { email, forceEmail } : { email },
+    });
+  }
+
+  // --- Authenticator app login (Phase 15) ---
+
+  getAuthenticatorStatus(): Promise<AuthenticatorStatus> {
+    return this.request("/auth/me/authenticator");
+  }
+
+  beginAuthenticatorSetup(): Promise<AuthenticatorSetup> {
+    return this.request("/auth/me/authenticator/setup", { method: "POST" });
+  }
+
+  confirmAuthenticator(code: string): Promise<AuthenticatorStatus> {
+    return this.request("/auth/me/authenticator/confirm", { method: "POST", body: { code } });
+  }
+
+  disableAuthenticator(): Promise<AuthenticatorStatus> {
+    return this.request("/auth/me/authenticator", { method: "DELETE" });
   }
 
   async verifyLoginCode(email: string, code: string): Promise<LoginVerifyResponse> {

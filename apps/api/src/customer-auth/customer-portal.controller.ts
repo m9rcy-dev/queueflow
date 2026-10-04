@@ -1,4 +1,17 @@
-import { Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
+import { confirmAuthenticatorSchema, type ConfirmAuthenticatorInput } from "@queueflow/validation";
+import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { AuthenticatorService } from "../authenticator/authenticator.service";
+import { CustomerAuthService } from "./customer-auth.service";
 import { Public } from "../auth/public.decorator";
 import { AppointmentsService } from "../appointments/appointments.service";
 import { CustomersService } from "../customers/customers.service";
@@ -20,6 +33,8 @@ export class CustomerPortalController {
   constructor(
     private readonly customersService: CustomersService,
     private readonly appointmentsService: AppointmentsService,
+    private readonly customerAuthService: CustomerAuthService,
+    private readonly authenticator: AuthenticatorService,
   ) {}
 
   @Get()
@@ -56,5 +71,30 @@ export class CustomerPortalController {
   @Get("appointments")
   appointments(@CurrentCustomer() customer: CustomerRequestUser) {
     return this.appointmentsService.listUpcomingForCustomer(customer.tenantId, customer.customerId);
+  }
+
+  // --- Authenticator app login (Phase 15, ADR-014) ---
+
+  @Get("authenticator")
+  authenticatorStatus(@CurrentCustomer() customer: CustomerRequestUser) {
+    return this.authenticator.getStatus({ customerId: customer.customerId });
+  }
+
+  @Post("authenticator/setup")
+  beginAuthenticatorSetup(@CurrentCustomer() customer: CustomerRequestUser) {
+    return this.customerAuthService.beginAuthenticatorSetup(customer.customerId);
+  }
+
+  @Post("authenticator/confirm")
+  confirmAuthenticator(
+    @CurrentCustomer() customer: CustomerRequestUser,
+    @Body(new ZodValidationPipe(confirmAuthenticatorSchema)) body: ConfirmAuthenticatorInput,
+  ) {
+    return this.authenticator.confirmSetup({ customerId: customer.customerId }, body.code);
+  }
+
+  @Delete("authenticator")
+  disableAuthenticator(@CurrentCustomer() customer: CustomerRequestUser) {
+    return this.authenticator.disable({ customerId: customer.customerId });
   }
 }

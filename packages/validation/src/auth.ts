@@ -17,6 +17,8 @@ export type BusinessSignupInput = z.infer<typeof businessSignupSchema>;
 
 export const requestLoginCodeSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
+  /** Phase 15: "Email me a code instead" — send one even when the account uses an authenticator app. */
+  forceEmail: z.boolean().optional(),
 });
 export type RequestLoginCodeInput = z.infer<typeof requestLoginCodeSchema>;
 
@@ -67,3 +69,9 @@ export const staffPinLoginSchema = z.object({
   pin: pinSchema,
 });
 export type StaffPinLoginInput = z.infer<typeof staffPinLoginSchema>;
+
+/** Phase 15 — confirming authenticator setup with the first code the app shows. */
+export const confirmAuthenticatorSchema = z.object({
+  code: otpCodeSchema,
+});
+export type ConfirmAuthenticatorInput = z.infer<typeof confirmAuthenticatorSchema>;

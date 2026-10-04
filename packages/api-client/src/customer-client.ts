@@ -1,4 +1,6 @@
 import type {
+  AuthenticatorSetup,
+  AuthenticatorStatus,
   CustomerActiveEntry,
   CustomerAuthResponse,
   CustomerPortalSummary,
@@ -53,10 +55,11 @@ export class CustomerApiClient {
     return this.request("/public/customers/signup", { method: "POST", body: input });
   }
 
-  async requestLoginCode(tenantId: string, email: string): Promise<void> {
+  /** `forceEmail` = "Email me a code instead" (Phase 15). */
+  async requestLoginCode(tenantId: string, email: string, forceEmail = false): Promise<void> {
     await this.request("/public/customers/login/request", {
       method: "POST",
-      body: { tenantId, email },
+      body: forceEmail ? { tenantId, email, forceEmail } : { tenantId, email },
     });
   }
 
@@ -111,6 +114,24 @@ export class CustomerApiClient {
 
   getUpcomingAppointments(): Promise<CustomerUpcomingAppointment[]> {
     return this.request("/customers/me/appointments");
+  }
+
+  // --- Authenticator app login (Phase 15) ---
+
+  getAuthenticatorStatus(): Promise<AuthenticatorStatus> {
+    return this.request("/customers/me/authenticator");
+  }
+
+  beginAuthenticatorSetup(): Promise<AuthenticatorSetup> {
+    return this.request("/customers/me/authenticator/setup", { method: "POST" });
+  }
+
+  confirmAuthenticator(code: string): Promise<AuthenticatorStatus> {
+    return this.request("/customers/me/authenticator/confirm", { method: "POST", body: { code } });
+  }
+
+  disableAuthenticator(): Promise<AuthenticatorStatus> {
+    return this.request("/customers/me/authenticator", { method: "DELETE" });
   }
 
   private async request<T>(
