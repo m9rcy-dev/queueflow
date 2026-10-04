@@ -71,6 +71,15 @@ export function buildAppointmentCancelledMessage(params: {
   return `${params.businessName}: your ${params.serviceName} appointment for ${params.when} has been cancelled${who}.`;
 }
 
+export function buildAppointmentReminderMessage(params: {
+  businessName: string;
+  serviceName: string;
+  when: string;
+  manageUrl: string;
+}): string {
+  return `${params.businessName}: reminder of your ${params.serviceName} appointment, ${params.when}. When you arrive, check in here: ${params.manageUrl}`;
+}
+
 const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   APPROACHING: "You're approaching in line",
   NEARLY_NEXT: "You're almost up!",
@@ -78,6 +87,7 @@ const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   RECALLED: "Reminder: it's your turn",
   APPOINTMENT_BOOKED: "Your appointment is booked",
   APPOINTMENT_CANCELLED: "Your appointment has been cancelled",
+  APPOINTMENT_REMINDER: "Reminder: your upcoming appointment",
 };
 
 /** Only meaningful for the EMAIL channel — SMS has no subject line. */

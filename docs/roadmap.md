@@ -472,13 +472,25 @@ window; `pnpm quality` green; both dev servers booted.
 
 ### Phase 14 — Appointment Check-In & Mixed Queue
 
-**Status: Not started**
+**Status: ✅ Done** (2026-10-04) — see `docs/status/phase-14.md`, ADR-013
 
-`APPOINTMENT_TICKET` code (D-12) and check-in by staff, by link, or by scanner (same-day, same-location
-validation; idempotent per §78); `queue_entry.appointmentId`; the G-25 priority rule (a checked-in
-appointment sorts ahead of walk-ins from its start time minus a configurable window; the one
-deliberate exception to plain FIFO); no-show after a grace period (§77) and configurable reminders
-(§75), both on the existing `@nestjs/schedule` infrastructure (Phase 12's retention cron).
+`APPOINTMENT_TICKET` codes minted with every booking (D-12); check-in by scanner, customer link, or
+staff, idempotent and race-safe, on the appointment's day only; `queue_entry.appointmentId`; the G-25
+priority rule (open-window appointments first, early check-ins wait in FIFO); no-shows after a grace
+period with same-day staff restore (§77); idempotent reminders (§75); both jobs once a minute on
+`@nestjs/schedule`.
+
+## Proposed
+
+### Phase 15 — Authenticator App Login (TOTP)
+
+**Status: Not started — decisions open** (proposed 2026-10-04)
+
+A per-user login preference: email code (today) or a time-based code from an authenticator app
+(Google/Microsoft Authenticator etc., RFC 6238). Enrollment shows an `otpauth://` QR, confirmed by
+entering a first code; secret encrypted at rest; recovery codes; same attempt limits as email OTP.
+Fits ADR-004's no-passwords rule but needs an ADR-004 amendment. Open: replace email vs true second
+factor; lost-phone recovery (codes, email fallback, or both); staff only or customers too.
 
 ---
 
@@ -515,6 +527,6 @@ start from nothing:
 
 ## Count, for reference
 
-**15 phases in the active roadmap (0–14).** Phases 0–13 done; 14 remains. Plus 4
+**15 phases in the active roadmap (0–14), all done**, plus Phase 15 proposed. Plus 4
 explicitly deferred workstreams (analytics trends, platform admin, billing, flash-crowd/waiting-room
 queuing) tracked but not scheduled.

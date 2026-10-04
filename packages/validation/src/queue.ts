@@ -71,7 +71,9 @@ export type JoinQueueInput = z.infer<typeof joinQueueSchema>;
  * no confirmation step (D-11).
  */
 export const scanCodeSchema = z.object({
-  code: z.string().trim().min(1).max(50),
+  // 100, not 50: secret codes are 27 chars when minted by the API, but the
+  // Phase 14 backfill migration gave older bookings 64-char check-in codes.
+  code: z.string().trim().min(1).max(100),
 });
 export type ScanCodeInput = z.infer<typeof scanCodeSchema>;
 

@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import { Badge, Button, Card } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
 import type { PublicAppointmentSummary } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { formatDateTimeIn } from "../../../lib/appointment-format";
+import { TicketQrCode } from "../../../components/TicketQrCode";
 
 /**
  * An appointment's own page (Phase 13), reached from the booking
@@ -18,12 +20,15 @@ import { formatDateTimeIn } from "../../../lib/appointment-format";
 export default function AppointmentPage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
+  const router = useRouter();
 
   const [appointment, setAppointment] = useState<PublicAppointmentSummary | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkInError, setCheckInError] = useState<string | null>(null);
 
   useEffect(() => {
     publicApi
@@ -45,6 +50,20 @@ export default function AppointmentPage() {
     }
   }
 
+  async function handleCheckIn(): Promise<void> {
+    setCheckingIn(true);
+    setCheckInError(null);
+    try {
+      const ticket = await publicApi.checkInAppointment(token);
+      router.push(`/queue/t/${ticket.publicToken}`);
+    } catch (err) {
+      setCheckInError(
+        err instanceof ApiError ? err.message : "Something went wrong. Please try again.",
+      );
+      setCheckingIn(false);
+    }
+  }
+
   if (notFound) {
     return (
       <Centered>
@@ -63,6 +82,12 @@ export default function AppointmentPage() {
   }
 
   const isBooked = appointment.status === "BOOKED";
+  const STATUS_LABEL: Record<PublicAppointmentSummary["status"], string> = {
+    BOOKED: "Booked",
+    CANCELLED: "Cancelled",
+    CHECKED_IN: "Checked in",
+    NO_SHOW: "Missed",
+  };
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 bg-bg p-6">
@@ -72,7 +97,17 @@ export default function AppointmentPage() {
       </div>
 
       <Card className="flex flex-col items-center gap-3 text-center">
-        <Badge tone={isBooked ? "success" : "neutral"}>{isBooked ? "Booked" : "Cancelled"}</Badge>
+        <Badge
+          tone={
+            appointment.status === "BOOKED" || appointment.status === "CHECKED_IN"
+              ? "success"
+              : appointment.status === "NO_SHOW"
+                ? "warning"
+                : "neutral"
+          }
+        >
+          {STATUS_LABEL[appointment.status]}
+        </Badge>
         <p className="text-xl font-semibold text-text-primary">
           {formatDateTimeIn(appointment.startsAt, appointment.timezone)}
         </p>
@@ -83,6 +118,40 @@ export default function AppointmentPage() {
           <p className="text-sm text-text-secondary">{appointment.location.address}</p>
         )}
       </Card>
+
+      {/* Phase 14 — check in when you arrive: tap here, or show the code at the counter (D-12). */}
+      {appointment.canCheckIn && (
+        <Card className="flex flex-col items-center gap-3 text-center">
+          <p className="text-text-primary">Here already?</p>
+          <Button onClick={handleCheckIn} disabled={checkingIn} className="w-full">
+            {checkingIn ? "Checking in…" : "I'm here, check me in"}
+          </Button>
+          {checkInError && (
+            <p role="alert" className="text-sm text-red-600">
+              {checkInError}
+            </p>
+          )}
+        </Card>
+      )}
+      {appointment.checkInCode && (
+        <Card className="flex flex-col items-center gap-2 text-center">
+          <p className="text-sm text-text-secondary">Or scan this at the counter when you arrive</p>
+          <TicketQrCode url={appointment.checkInCode} />
+        </Card>
+      )}
+      {appointment.queueTicketToken && (
+        <Link
+          href={`/queue/t/${appointment.queueTicketToken}`}
+          className="inline-flex min-h-[48px] items-center justify-center rounded-md bg-primary px-6 py-3 text-base font-medium text-white hover:bg-primary-hover"
+        >
+          See your place in the queue
+        </Link>
+      )}
+      {appointment.status === "NO_SHOW" && (
+        <p className="text-center text-sm text-text-secondary">
+          This appointment was marked as missed. If you&apos;re here, please see the counter.
+        </p>
+      )}
 
       {isBooked && appointment.canCancel && !confirming && (
         <Button variant="secondary" onClick={() => setConfirming(true)}>
@@ -120,11 +189,12 @@ export default function AppointmentPage() {
           {formatDateTimeIn(appointment.cancelDeadline, appointment.timezone)}.
         </p>
       )}
-      {!isBooked && appointment.cancellationReason !== "CUSTOMER_REQUESTED" && (
-        <p className="text-center text-sm text-text-secondary">
-          The business cancelled this appointment.
-        </p>
-      )}
+      {appointment.status === "CANCELLED" &&
+        appointment.cancellationReason !== "CUSTOMER_REQUESTED" && (
+          <p className="text-center text-sm text-text-secondary">
+            The business cancelled this appointment.
+          </p>
+        )}
     </main>
   );
 }

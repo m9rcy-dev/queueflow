@@ -26,6 +26,22 @@ export const updateAppointmentSettingsSchema = z
       .min(0)
       .max(7 * 24 * 60)
       .optional(),
+    priorityWindowMinutes: z.number().int().min(0).max(240).optional(),
+    noShowGraceMinutes: z.number().int().min(0).max(240).optional(),
+    // At most 3 reminders, each up to 14 days ahead; duplicates rejected.
+    reminderOffsetsMinutes: z
+      .array(
+        z
+          .number()
+          .int()
+          .min(5)
+          .max(14 * 24 * 60),
+      )
+      .max(3)
+      .refine((offsets) => new Set(offsets).size === offsets.length, {
+        message: "Reminder times must be different",
+      })
+      .optional(),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: "At least one setting must be provided",
@@ -97,6 +113,12 @@ export const appointmentCalendarQuerySchema = z.object({
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Must be a month in YYYY-MM format"),
 });
 export type AppointmentCalendarQuery = z.infer<typeof appointmentCalendarQuerySchema>;
+
+/** Staff check-in from the day list — which queue to put them in; defaults to the location's queue for the service. */
+export const staffCheckInSchema = z.object({
+  queueId: z.string().uuid().optional(),
+});
+export type StaffCheckInInput = z.infer<typeof staffCheckInSchema>;
 
 export const appointmentDayQuerySchema = z.object({
   date: localDateSchema,

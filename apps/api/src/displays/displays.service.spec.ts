@@ -72,7 +72,21 @@ describe("DisplaysService", () => {
           { ticketNumber: 12, service: { name: "Haircut" } },
           { ticketNumber: 13, service: { name: "Beard Trim" } },
         ])
-        .mockResolvedValueOnce([{ ticketNumber: 14 }, { ticketNumber: 15 }]);
+        .mockResolvedValueOnce([
+          // Returned out of order on purpose: the service sorts by queue order (G-25).
+          {
+            id: "e15",
+            joinedAt: new Date("2026-01-01T00:05:00Z"),
+            priorityFrom: null,
+            ticketNumber: 15,
+          },
+          {
+            id: "e14",
+            joinedAt: new Date("2026-01-01T00:01:00Z"),
+            priorityFrom: null,
+            ticketNumber: 14,
+          },
+        ]);
 
       const result = await service.getSnapshot("queue-1");
 

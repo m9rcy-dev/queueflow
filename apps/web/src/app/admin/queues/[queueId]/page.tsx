@@ -429,6 +429,18 @@ function EntryRow({
         <div className="flex items-center gap-2">
           <span className="text-lg font-semibold text-text-primary">#{entry.ticketNumber}</span>
           <Badge tone={STATUS_TONE[entry.status]}>{entry.status}</Badge>
+          {/* Phase 14 — booked customers; "priority" once their window opened (G-25). The
+              counter device sits at the location, so its own clock is the location's. */}
+          {entry.appointmentStartsAt && (
+            <Badge tone={entry.priorityActive ? "success" : "info"}>
+              Appointment{" "}
+              {new Date(entry.appointmentStartsAt).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+              {entry.priorityActive ? " · priority" : ""}
+            </Badge>
+          )}
         </div>
         <p className="text-sm text-text-secondary">
           {entry.customerName} · {entry.customerPhone}

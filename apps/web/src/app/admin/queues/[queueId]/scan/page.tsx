@@ -65,7 +65,7 @@ export default function ScannerPage() {
       <div>
         <h1 className="text-xl font-semibold text-text-primary">Scan a card or code</h1>
         <p className="text-sm text-text-secondary">
-          Present a guest card or a customer&apos;s own QR code to the scanner.
+          Present a guest card, a customer&apos;s own QR code, or a booking&apos;s check-in code.
         </p>
       </div>
 
@@ -84,7 +84,7 @@ export default function ScannerPage() {
 
       {result && (
         <Card className="flex w-full flex-col items-center gap-2">
-          <Badge tone="success">Joined</Badge>
+          <Badge tone="success">{result.appointmentStartsAt ? "Checked in" : "Joined"}</Badge>
           <p className="text-4xl font-semibold text-text-primary">#{result.ticketNumber}</p>
           <p className="text-text-secondary">{result.customerName}</p>
         </Card>

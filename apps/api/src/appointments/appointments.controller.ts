@@ -17,6 +17,7 @@ import {
   createClosureSchema,
   listClosuresQuerySchema,
   staffCancelAppointmentSchema,
+  staffCheckInSchema,
   updateAppointmentSettingsSchema,
   type AppointmentCalendarQuery,
   type AppointmentDayQuery,
@@ -24,6 +25,7 @@ import {
   type CreateClosureInput,
   type ListClosuresQuery,
   type StaffCancelAppointmentInput,
+  type StaffCheckInInput,
   type UpdateAppointmentSettingsInput,
 } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -31,6 +33,7 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { Roles } from "../auth/roles.decorator";
 import type { RequestUser } from "../auth/request-user.interface";
 import { LocationsService } from "../locations/locations.service";
+import { QueueEntriesService } from "../queue-entries/queue-entries.service";
 import { AppointmentsService } from "./appointments.service";
 
 /**
@@ -44,6 +47,7 @@ export class AppointmentsController {
   constructor(
     private readonly appointmentsService: AppointmentsService,
     private readonly locationsService: LocationsService,
+    private readonly queueEntriesService: QueueEntriesService,
   ) {}
 
   @Get("appointment-settings")
@@ -127,5 +131,21 @@ export class AppointmentsController {
     @Body(new ZodValidationPipe(staffCancelAppointmentSchema)) body: StaffCancelAppointmentInput,
   ) {
     return this.appointmentsService.cancelByStaff(user.tenantId, user.tenantUserId, id, body);
+  }
+
+  /** Phase 14 — check a booked customer in from the day list; they join the queue (§36). */
+  @Post("appointments/:id/check-in")
+  checkIn(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(staffCheckInSchema)) body: StaffCheckInInput,
+  ) {
+    return this.queueEntriesService.checkInAppointmentByStaff(user.tenantId, id, body.queueId);
+  }
+
+  /** Undo a no-show, same day only (ADR-013). */
+  @Post("appointments/:id/restore")
+  restore(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.appointmentsService.restoreNoShow(user.tenantId, id);
   }
 }

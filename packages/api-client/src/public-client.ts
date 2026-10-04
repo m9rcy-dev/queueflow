@@ -37,6 +37,8 @@ export interface PublicApiClient {
   ): Promise<BookAppointmentResponse>;
   getAppointment(token: string): Promise<PublicAppointmentSummary>;
   cancelAppointment(token: string): Promise<PublicAppointmentSummary>;
+  /** Phase 14 — "I'm here": joins the queue; the response's publicToken opens the live ticket. */
+  checkInAppointment(token: string): Promise<JoinQueueResponse>;
 }
 
 export function createPublicApiClient(baseUrl: string): PublicApiClient {
@@ -87,5 +89,7 @@ export function createPublicApiClient(baseUrl: string): PublicApiClient {
     getAppointment: (token) => request(`/public/appointments/${encodeURIComponent(token)}`),
     cancelAppointment: (token) =>
       request(`/public/appointments/${encodeURIComponent(token)}/cancel`, { method: "POST" }),
+    checkInAppointment: (token) =>
+      request(`/public/appointments/${encodeURIComponent(token)}/check-in`, { method: "POST" }),
   };
 }

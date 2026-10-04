@@ -55,6 +55,8 @@ describe("QueueEntriesService", () => {
     publicToken: "tok_abc123",
     approachingNotifiedAt: null,
     nearlyNextNotifiedAt: null,
+    // Phase 14 (G-25) — a walk-in, never priority.
+    priorityFrom: null,
   };
   const customerContact = { phoneE164: "+64211234567", email: null };
 
@@ -265,7 +267,14 @@ describe("QueueEntriesService", () => {
     });
 
     it("does not notify an entry still beyond both thresholds", async () => {
-      const created = { ...entry, id: "entry-2", ticketNumber: 2 };
+      // Joined after the six below — order now comes from joinedAt (G-25's
+      // shared sort), not from the order the mock happens to return rows in.
+      const created = {
+        ...entry,
+        id: "entry-2",
+        ticketNumber: 2,
+        joinedAt: new Date("2026-01-01T00:10:00Z"),
+      };
       mockSuccessfulJoin(created);
       // The 6 entries ahead already had their own notifications fire earlier
       // (already-notified, so this pass doesn't re-fire for them either) —

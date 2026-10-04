@@ -142,7 +142,9 @@ export default function SettingsPage() {
   );
 }
 
-const SETTING_FIELDS: Array<{ key: keyof AppointmentSettings; label: string; min: number }> = [
+type NumericSettingKey = Exclude<keyof AppointmentSettings, "reminderOffsetsMinutes">;
+
+const SETTING_FIELDS: Array<{ key: NumericSettingKey; label: string; min: number }> = [
   { key: "slotIntervalMinutes", label: "Offer a start time every (minutes)", min: 5 },
   { key: "bufferMinutes", label: "Gap after each appointment (minutes)", min: 0 },
   { key: "minLeadMinutes", label: "Earliest booking, from now (minutes)", min: 0 },
@@ -152,7 +154,29 @@ const SETTING_FIELDS: Array<{ key: keyof AppointmentSettings; label: string; min
     label: "Customers can cancel online until (minutes before)",
     min: 0,
   },
+  {
+    key: "priorityWindowMinutes",
+    label: "Checked-in bookings go ahead of walk-ins from (minutes before)",
+    min: 0,
+  },
+  {
+    key: "noShowGraceMinutes",
+    label: "Mark as no-show if not checked in after (minutes late)",
+    min: 0,
+  },
 ];
+
+/** "24, 2" (hours, the way people think about reminders) <-> [1440, 120] (minutes, what the API stores). */
+function hoursText(minutes: number[]): string {
+  return minutes.map((m) => String(m / 60)).join(", ");
+}
+function parseHours(text: string): number[] {
+  return text
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "")
+    .map((part) => Math.round(Number(part) * 60));
+}
 
 /** Tenant-wide slot rules (Phase 13, G-22/ADR-012) — only shown once the Appointments capability is on. */
 function AppointmentSettingsCard() {
@@ -169,6 +193,9 @@ function AppointmentSettingsCard() {
         minLeadMinutes: String(settings.minLeadMinutes),
         advanceDays: String(settings.advanceDays),
         cancelNoticeMinutes: String(settings.cancelNoticeMinutes),
+        priorityWindowMinutes: String(settings.priorityWindowMinutes),
+        noShowGraceMinutes: String(settings.noShowGraceMinutes),
+        reminderOffsetsMinutes: hoursText(settings.reminderOffsetsMinutes),
       });
     });
   }, []);
@@ -186,6 +213,9 @@ function AppointmentSettingsCard() {
         minLeadMinutes: Number(values.minLeadMinutes),
         advanceDays: Number(values.advanceDays),
         cancelNoticeMinutes: Number(values.cancelNoticeMinutes),
+        priorityWindowMinutes: Number(values.priorityWindowMinutes),
+        noShowGraceMinutes: Number(values.noShowGraceMinutes),
+        reminderOffsetsMinutes: parseHours(values.reminderOffsetsMinutes),
       });
       setSaved(true);
     } catch (err) {
@@ -216,6 +246,12 @@ function AppointmentSettingsCard() {
               required
             />
           ))}
+          <Input
+            label="Reminders, hours before (comma-separated, blank for none)"
+            value={values.reminderOffsetsMinutes}
+            onChange={(e) => setValues({ ...values, reminderOffsetsMinutes: e.target.value })}
+            placeholder="24, 2"
+          />
           {error && <p className="text-sm text-red-600">{error}</p>}
           {saved && <p className="text-sm text-green-700">Saved.</p>}
           <Button type="submit" variant="secondary" disabled={saving} className="self-start">

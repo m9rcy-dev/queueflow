@@ -243,7 +243,8 @@ function LocationCalendar({ location }: { location: LocationSummary }) {
             key={appointment.id}
             appointment={appointment}
             timezone={location.timezone}
-            onCancelled={refreshAll}
+            isToday={selectedDate === today}
+            onChanged={refreshAll}
           />
         ))}
       </Card>
@@ -251,21 +252,48 @@ function LocationCalendar({ location }: { location: LocationSummary }) {
   );
 }
 
+const STATUS_BADGE: Record<
+  StaffAppointmentSummary["status"],
+  { label: string; tone: "info" | "success" | "warning" | "neutral" }
+> = {
+  BOOKED: { label: "Booked", tone: "info" },
+  CHECKED_IN: { label: "Checked in", tone: "success" },
+  NO_SHOW: { label: "No-show", tone: "warning" },
+  CANCELLED: { label: "Cancelled", tone: "neutral" },
+};
+
 function AppointmentRow({
   appointment,
   timezone,
-  onCancelled,
+  isToday,
+  onChanged,
 }: {
   appointment: StaffAppointmentSummary;
   timezone: string;
-  onCancelled: () => Promise<void>;
+  isToday: boolean;
+  onChanged: () => Promise<void>;
 }) {
+  const [acting, setActing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState<AppointmentCancellationReason | "">("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isBooked = appointment.status === "BOOKED";
+
+  /** Check-in and restore (Phase 14) — one-tap actions, errors shown inline. */
+  async function runAction(action: () => Promise<unknown>): Promise<void> {
+    setActing(true);
+    setError(null);
+    try {
+      await action();
+      await onChanged();
+    } catch (err) {
+      setError(errorMessage(err, "Something went wrong."));
+    } finally {
+      setActing(false);
+    }
+  }
 
   async function handleCancel(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -278,7 +306,7 @@ function AppointmentRow({
       // form state has to be reset here, not left for an unmount.
       setCancelling(false);
       setSubmitting(false);
-      await onCancelled();
+      await onChanged();
     } catch (err) {
       setError(errorMessage(err, "Something went wrong."));
       setSubmitting(false);
@@ -298,7 +326,7 @@ function AppointmentRow({
             {appointment.service.name} · {appointment.customer.phoneE164}
             {appointment.bookedByStaff ? " · booked by staff" : ""}
           </p>
-          {!isBooked && appointment.cancellationReason && (
+          {appointment.status === "CANCELLED" && appointment.cancellationReason && (
             <p className="text-sm text-text-secondary">
               Cancelled: {CANCELLATION_REASON_LABELS[appointment.cancellationReason]}
               {appointment.cancellationNote ? ` (${appointment.cancellationNote})` : ""}
@@ -306,7 +334,26 @@ function AppointmentRow({
           )}
         </div>
         <div className="flex items-center gap-3">
-          <Badge tone={isBooked ? "info" : "neutral"}>{isBooked ? "Booked" : "Cancelled"}</Badge>
+          <Badge tone={STATUS_BADGE[appointment.status].tone}>
+            {STATUS_BADGE[appointment.status].label}
+          </Badge>
+          {isBooked && isToday && !cancelling && (
+            <Button
+              disabled={acting}
+              onClick={() => runAction(() => staffApi.checkInAppointment(appointment.id))}
+            >
+              {acting ? "Checking in…" : "Check in"}
+            </Button>
+          )}
+          {appointment.status === "NO_SHOW" && isToday && (
+            <Button
+              variant="secondary"
+              disabled={acting}
+              onClick={() => runAction(() => staffApi.restoreAppointment(appointment.id))}
+            >
+              {acting ? "Restoring…" : "Undo no-show"}
+            </Button>
+          )}
           {isBooked && !cancelling && (
             <Button variant="destructive" onClick={() => setCancelling(true)}>
               Cancel
@@ -315,6 +362,7 @@ function AppointmentRow({
         </div>
       </div>
 
+      {error && !cancelling && <p className="text-sm text-red-600">{error}</p>}
       {cancelling && (
         <form onSubmit={handleCancel} className="flex flex-col gap-3 border-t border-border pt-3">
           <label className="flex flex-col gap-1.5 text-sm font-medium text-text-primary">

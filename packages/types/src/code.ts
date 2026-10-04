@@ -4,9 +4,10 @@
  * G-07), GENERAL (the tenant-only "sign up here" poster, D-10),
  * CUSTOMER_IDENTITY (a customer's own persistent "loyalty card" code,
  * G-52), and GUEST_CARD (a location's numbered, anonymous card pool,
- * D-14). APPOINTMENT_TICKET is Phase 14's job; do not add it here early.
+ * D-14), and APPOINTMENT_TICKET (one per booking, scanned to check in; Phase 14).
  */
-export type CodeContextType = "QUEUE" | "DISPLAY" | "GENERAL" | "CUSTOMER_IDENTITY" | "GUEST_CARD";
+export type CodeContextType =
+  "QUEUE" | "DISPLAY" | "GENERAL" | "CUSTOMER_IDENTITY" | "GUEST_CARD" | "APPOINTMENT_TICKET";
 
 export interface CodeSummary {
   /** Phase 11 — needed so a staff-facing listing can target a specific code for deactivation (deactivateCode/deactivateGeneralCode take this, not publicCode). */

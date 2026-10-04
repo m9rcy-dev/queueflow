@@ -1,8 +1,8 @@
 # Project Status
 
-Last Updated: 2026-10-03
-Current Phase: Phase 13 — Appointment Engine, done (see `docs/roadmap.md` — now 0–14; Phases 13–14 added 2026-10-03)
-Current Task: Phase 14 — Appointment Check-In & Mixed Queue (not started)
+Last Updated: 2026-10-04
+Current Phase: Phase 14 — Appointment Check-In & Mixed Queue, done (see `docs/roadmap.md` — 0–14 all done; Phase 15 proposed)
+Current Task: None started — Phase 15 (Authenticator App Login) is proposed with decisions still open
 
 ## Completed
 
@@ -137,12 +137,17 @@ Current Task: Phase 14 — Appointment Check-In & Mixed Queue (not started)
 
 - Appointment engine per ADR-012 (G-22/23/24/26 resolved first): pooled location capacity, fixed slot grid, date closures, location-row-locked booking, customer/staff cancel, staff calendar, booking from QUEUE codes, portal listing. Also fixed a pre-existing integration-suite flake (per-request ephemeral ports) across every suite. Detail: [`docs/status/phase-13.md`](docs/status/phase-13.md). 248 unit + 94 integration.
 
+### Phase 14 — Appointment Check-In & Mixed Queue
+
+- Check-in by scanner, link, or staff (idempotent, race-safe, booking's day only); `APPOINTMENT_TICKET` codes; G-25 priority via one shared queue-order rule; no-shows with same-day restore; idempotent reminders; jobs every minute. Detail: [`docs/status/phase-14.md`](docs/status/phase-14.md), ADR-013. 259 unit + 104 integration.
+
 ## Decisions Made
 
-See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
+See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); check-in and walk-in priority (Phase 14, ADR-013 — 10-min window per business, early check-ins wait in FIFO, same-day no-show restore); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
 
 ## Known Issues
 
+- Appointment link check-in doesn't prove physical presence; walk-in "nearly your turn" notifications catch up on the next queue change when a priority window opens, not on the minute (Phase 14 — see `docs/status/phase-14.md`).
 - Appointment booking page day chips start from the browser's today, not the location's; public booking has no per-phone throttle or future-booking cap (Phase 13 — see `docs/status/phase-13.md`).
 - `PROJECT_STATUS.md` itself is ~80KB despite AGENTS.md §8's cap — Phases 0–12's entries are long inline essays. Moving them into `docs/status/phase-NN.md` files (as Phase 13 does) is a worthwhile cleanup, not done here to keep this phase's diff focused.
 - **G-40 partial**: Cloudflare Turnstile (the specific bot-check the plan calls for on the join POST) is not integrated — only IP-based rate limiting (`@nestjs/throttler`, 5/min on join) ships. Adding Turnstile requires an external Cloudflare account/site key.
@@ -165,8 +170,8 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-**Phase 14 — Appointment Check-In & Mixed Queue** (`docs/roadmap.md`). Start with the decisions still
-open for it: the G-25 priority window size and where it's configured, and whether no-show (§77) and
-reminders (§75) run on `@nestjs/schedule` crons like the retention job (likely). Then:
-`APPOINTMENT_TICKET` code (D-12), `queue_entry.appointmentId`, check-in by staff/link/scanner
-(same-day, same-location, idempotent), `CHECKED_IN`/`NO_SHOW` states, priority sort in Call Next.
+**Phase 15 — Authenticator App Login (TOTP)** is proposed in `docs/roadmap.md` but not started.
+Settle its open decisions with the user first: (1) replace the email code or add a true second
+factor; (2) lost-phone recovery — recovery codes, email fallback, or both; (3) staff only, or
+customers too. Then amend ADR-004. Alternatively, per the user's walkthrough discussion, real SMS
+and consent text (G-48) are what stand between the app and a pilot business.

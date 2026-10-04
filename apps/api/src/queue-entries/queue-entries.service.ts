@@ -23,6 +23,12 @@ import { resolveChannel } from "../notifications/resolve-channel";
 import { normalizePhoneToE164 } from "../common/phone.util";
 import { getLocationServiceDate } from "../common/timezone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
+import {
+  callNextOrderSql,
+  compareQueueOrder,
+  isPriorityActive,
+  sortByQueueOrder,
+} from "./queue-order";
 
 /** Rounded to the nearest minute; null (not 0) for an empty set — "no data yet" must never look like "instant" on the dashboard (Phase 11, G-14). */
 function average(values: number[]): number | null {
@@ -35,6 +41,33 @@ function notFoundScanCode(): NotFoundException {
     code: "SCAN_CODE_NOT_FOUND",
     message: "This code isn't recognized.",
   });
+}
+
+/**
+ * BOOKED, and today in the location's timezone — the check-in rules shared
+ * by the pre-check and the locked re-check (ADR-013).
+ */
+function assertCheckInAllowed(appointment: {
+  status: string;
+  localDate: Date;
+  location: { timezone: string };
+}): void {
+  if (appointment.status !== "BOOKED") {
+    throw new ConflictException({
+      code: "APPOINTMENT_NOT_CHECKABLE",
+      message:
+        appointment.status === "CANCELLED"
+          ? "This appointment was cancelled."
+          : "This appointment was marked as missed. Please see the counter.",
+    });
+  }
+  const today = getLocationServiceDate(appointment.location.timezone);
+  if (appointment.localDate.getTime() !== today.getTime()) {
+    throw new ConflictException({
+      code: "APPOINTMENT_NOT_TODAY",
+      message: "You can only check in on the day of your appointment.",
+    });
+  }
 }
 
 const ACTIVE_STATUSES: QueueEntryStatus[] = ["WAITING", "CALLED", "SERVING"];
@@ -55,6 +88,7 @@ type EntryRow = {
   completedAt: Date | null;
   cancelledAt: Date | null;
   publicToken: string;
+  priorityFrom: Date | null;
 };
 
 type StaffEntryRow = EntryRow & {
@@ -62,6 +96,8 @@ type StaffEntryRow = EntryRow & {
   assignedStaff: { id: string; user: { displayName: string } } | null;
   // The GUEST_CARD code currently linked to this entry, if any (Phase 10) — null for every non-guest-card entry.
   guestCard: { guestNumber: number | null } | null;
+  // The appointment this entry was checked in from, if any (Phase 14).
+  appointment: { startsAt: Date } | null;
 };
 
 /**
@@ -260,7 +296,175 @@ export class QueueEntriesService {
     if (code.contextType === "CUSTOMER_IDENTITY") {
       return this.joinByCustomerIdentity(tenantId, queue, code);
     }
+    if (code.contextType === "APPOINTMENT_TICKET" && code.appointmentId) {
+      // A booking for another location gets the same uniform rejection as
+      // a guest card from another location's pool.
+      const appointment = await this.prisma.appointment.findFirst({
+        where: { id: code.appointmentId, tenantId, locationId: queue.locationId },
+        select: { id: true },
+      });
+      if (!appointment) throw notFoundScanCode();
+      const { entryId } = await this.checkInAppointment(tenantId, appointment.id, queue.id);
+      return this.getByIdForTenant(tenantId, entryId);
+    }
     throw notFoundScanCode();
+  }
+
+  /** Staff checking a booking in from the day list (Phase 14) — `queueId` optional, see resolveCheckInQueue. */
+  async checkInAppointmentByStaff(
+    tenantId: string,
+    appointmentId: string,
+    queueId?: string,
+  ): Promise<StaffQueueEntrySummary> {
+    const { entryId } = await this.checkInAppointment(tenantId, appointmentId, queueId);
+    return this.getByIdForTenant(tenantId, entryId);
+  }
+
+  /**
+   * The customer's own "I'm here" from their appointment page (§78 method
+   * 3). The appointment token is the credential, the same as the queue
+   * ticket's. Returns the new ticket's token so the page can open the live
+   * ticket.
+   */
+  async checkInAppointmentByToken(appointmentToken: string): Promise<JoinQueueResponse> {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { publicToken: appointmentToken },
+      select: { id: true, tenantId: true },
+    });
+    if (!appointment) {
+      throw new NotFoundException({
+        code: "APPOINTMENT_NOT_FOUND",
+        message: "Appointment not found.",
+      });
+    }
+    const { entryId } = await this.checkInAppointment(appointment.tenantId, appointment.id);
+    const entry = await this.prisma.queueEntry.findUniqueOrThrow({ where: { id: entryId } });
+    return this.toJoinResponse(
+      entry,
+      await this.computePosition(entry, await this.servingCapacityFor(entry.queueId)),
+    );
+  }
+
+  /**
+   * Appointment check-in (§36, D-12): turns a BOOKED appointment into a
+   * WAITING queue entry linked to it, and the appointment into CHECKED_IN.
+   * The one implementation behind the scanner, the customer's link, and
+   * staff.
+   *
+   * Rules (ADR-013): only on the appointment's own local date; any time
+   * that day (an early arrival waits in normal order until its priority
+   * window opens, G-25 — `priorityFrom` is fixed here as startsAt minus
+   * the tenant's window); idempotent (§78) — checking in again returns the
+   * existing entry. The appointment row is locked for the whole
+   * transaction, so two simultaneous check-ins (a scan and a tap, say)
+   * produce one entry. The per-customer active-ticket caps (G-34) are not
+   * applied: the customer already holds a booking for this visit.
+   */
+  private async checkInAppointment(
+    tenantId: string,
+    appointmentId: string,
+    queueId?: string,
+  ): Promise<{ entryId: string; created: boolean }> {
+    const appointment = await this.prisma.appointment.findFirst({
+      where: { id: appointmentId, tenantId },
+      include: { location: true, tenant: true, queueEntry: { select: { id: true } } },
+    });
+    if (!appointment) {
+      throw new NotFoundException({
+        code: "APPOINTMENT_NOT_FOUND",
+        message: "Appointment not found.",
+      });
+    }
+    if (appointment.status === "CHECKED_IN" && appointment.queueEntry) {
+      return { entryId: appointment.queueEntry.id, created: false };
+    }
+    assertCheckInAllowed(appointment);
+
+    const queue = await this.resolveCheckInQueue(tenantId, appointment, queueId);
+    const serviceDate = getLocationServiceDate(appointment.location.timezone);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM appointments WHERE id = ${appointmentId} FOR UPDATE`;
+      const current = await tx.appointment.findUniqueOrThrow({
+        where: { id: appointmentId },
+        include: { queueEntry: { select: { id: true } } },
+      });
+      if (current.status === "CHECKED_IN" && current.queueEntry) {
+        return { entryId: current.queueEntry.id, created: false };
+      }
+      assertCheckInAllowed({ ...current, location: appointment.location });
+
+      const counter = await tx.queueTicketCounter.upsert({
+        where: { queueId_serviceDate: { queueId: queue.id, serviceDate } },
+        create: { queueId: queue.id, serviceDate, lastNumber: 1 },
+        update: { lastNumber: { increment: 1 } },
+      });
+      const created = await tx.queueEntry.create({
+        data: {
+          tenantId,
+          queueId: queue.id,
+          serviceId: current.serviceId,
+          customerId: current.customerId,
+          publicToken: generateSecurePublicToken(),
+          ticketNumber: counter.lastNumber,
+          serviceDate,
+          appointmentId,
+          priorityFrom: new Date(
+            current.startsAt.getTime() -
+              appointment.tenant.appointmentPriorityWindowMinutes * 60_000,
+          ),
+        },
+      });
+      await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { status: "CHECKED_IN", checkedInAt: new Date() },
+      });
+      await this.evaluateWaitingThresholds(tx, queue.id);
+      return { entryId: created.id, created: true };
+    });
+
+    if (result.created) {
+      this.queueEvents.emitQueueChanged(queue.id);
+      this.triggerNotificationProcessing();
+    }
+    return result;
+  }
+
+  /**
+   * Which queue a check-in lands in: the one given (it must be at the
+   * appointment's location), else the location's active queue that offers
+   * the appointment's service, else the location's only active queue (an
+   * appointment-only service needn't be attached to any queue). D-04
+   * makes one queue per location the norm, so the last two rarely differ.
+   */
+  private async resolveCheckInQueue(
+    tenantId: string,
+    appointment: { locationId: string; serviceId: string },
+    queueId?: string,
+  ): Promise<{ id: string }> {
+    const candidates = await this.prisma.queue.findMany({
+      where: {
+        tenantId,
+        locationId: appointment.locationId,
+        ...(queueId && { id: queueId }),
+      },
+      include: { queueServices: { select: { serviceId: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    if (queueId && candidates.length === 0) {
+      throw new NotFoundException({ code: "QUEUE_NOT_FOUND", message: "Queue not found." });
+    }
+    const active = candidates.filter((q) => q.status === "ACTIVE");
+    const chosen =
+      active.find((q) => q.queueServices.some((qs) => qs.serviceId === appointment.serviceId)) ??
+      (active.length === 1 ? active[0] : undefined);
+    if (!chosen) {
+      throw new ConflictException({
+        code: "NO_QUEUE_FOR_CHECK_IN",
+        message: "There's no open queue to check in to right now. Please see the counter.",
+      });
+    }
+    return chosen;
   }
 
   /**
@@ -477,16 +681,20 @@ export class QueueEntriesService {
     // case worth avoiding it for).
     const entries = await this.prisma.queueEntry.findMany({
       where: { queueId, ...(status && { status }) },
-      orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
       include: {
         service: { select: { durationMinutes: true } },
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
         guestCard: { select: { guestNumber: true } },
+        appointment: { select: { startsAt: true } },
       },
     });
-    return entries.map((entry) =>
-      this.toStaffSummary(entry, this.computePositionSync(entry, entries, queue.servingCapacity)),
+    const now = new Date();
+    return sortByQueueOrder(entries, now).map((entry) =>
+      this.toStaffSummary(
+        entry,
+        this.computePositionSync(entry, entries, queue.servingCapacity, now),
+      ),
     );
   }
 
@@ -560,10 +768,12 @@ export class QueueEntriesService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      // Same order as compareQueueOrder (G-25): open-window appointments
+      // first, then FIFO.
       const rows = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM queue_entries
         WHERE "queueId" = ${queueId} AND status = 'WAITING'
-        ORDER BY "joinedAt" ASC, id ASC
+        ORDER BY ${callNextOrderSql(new Date())}
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       `;
@@ -775,11 +985,13 @@ export class QueueEntriesService {
       where: { id: queueId },
       include: { tenant: { select: { name: true } } },
     });
-    const waiting = await tx.queueEntry.findMany({
-      where: { queueId, status: "WAITING" },
-      orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
-      include: { customer: { select: { phoneE164: true, email: true } } },
-    });
+    const waiting = sortByQueueOrder(
+      await tx.queueEntry.findMany({
+        where: { queueId, status: "WAITING" },
+        include: { customer: { select: { phoneE164: true, email: true } } },
+      }),
+      new Date(),
+    );
 
     interface Candidate {
       id: string;
@@ -955,6 +1167,7 @@ export class QueueEntriesService {
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
         guestCard: { select: { guestNumber: true } },
+        appointment: { select: { startsAt: true } },
       },
     });
     if (!entry) {
@@ -972,9 +1185,10 @@ export class QueueEntriesService {
   }
 
   /**
-   * Position/estimated-wait computed on read, never stored (G-13). Ties in
-   * `joinedAt` (same millisecond) are broken by `id` for a fully
-   * deterministic order.
+   * Position/estimated-wait computed on read, never stored (G-13), in the
+   * shared queue order (compareQueueOrder, G-25). Loads the queue's WAITING
+   * entries and counts who sorts ahead — the order depends on the current
+   * time, so it can't be a simple "joined before me" query any more.
    */
   private async computePosition(
     entry: EntryRow,
@@ -983,22 +1197,11 @@ export class QueueEntriesService {
     if (entry.status !== "WAITING") {
       return { position: null, estimatedWaitMinutes: null };
     }
-    const ahead = await this.prisma.queueEntry.findMany({
-      where: {
-        queueId: entry.queueId,
-        status: "WAITING",
-        OR: [
-          { joinedAt: { lt: entry.joinedAt } },
-          { joinedAt: entry.joinedAt, id: { lt: entry.id } },
-        ],
-      },
+    const waiting = await this.prisma.queueEntry.findMany({
+      where: { queueId: entry.queueId, status: "WAITING" },
       include: { service: { select: { durationMinutes: true } } },
     });
-    const totalDuration = ahead.reduce((sum, row) => sum + row.service.durationMinutes, 0);
-    return {
-      position: ahead.length + 1,
-      estimatedWaitMinutes: Math.ceil(totalDuration / Math.max(1, servingCapacity)),
-    };
+    return this.computePositionSync(entry, waiting, servingCapacity, new Date());
   }
 
   /** Same formula as computePosition, but against an already-fetched batch (used by `list` to avoid N+1 queries). */
@@ -1006,15 +1209,14 @@ export class QueueEntriesService {
     entry: EntryRow,
     allEntries: (EntryRow & { service: { durationMinutes: number } })[],
     servingCapacity: number,
+    now: Date,
   ): { position: number | null; estimatedWaitMinutes: number | null } {
     if (entry.status !== "WAITING") {
       return { position: null, estimatedWaitMinutes: null };
     }
     const ahead = allEntries.filter(
       (row) =>
-        row.status === "WAITING" &&
-        (row.joinedAt.getTime() < entry.joinedAt.getTime() ||
-          (row.joinedAt.getTime() === entry.joinedAt.getTime() && row.id < entry.id)),
+        row.status === "WAITING" && row.id !== entry.id && compareQueueOrder(row, entry, now) < 0,
     );
     const totalDuration = ahead.reduce((sum, row) => sum + row.service.durationMinutes, 0);
     return {
@@ -1057,6 +1259,8 @@ export class QueueEntriesService {
       assignedStaffId: entry.assignedStaff?.id ?? null,
       assignedStaffName: entry.assignedStaff?.user.displayName ?? null,
       guestCardNumber: entry.guestCard?.guestNumber ?? null,
+      appointmentStartsAt: entry.appointment?.startsAt.toISOString() ?? null,
+      priorityActive: isPriorityActive(entry, new Date()),
     };
   }
 

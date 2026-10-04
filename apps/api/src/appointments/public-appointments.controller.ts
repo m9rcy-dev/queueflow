@@ -8,6 +8,7 @@ import {
 } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { Public } from "../auth/public.decorator";
+import { QueueEntriesService } from "../queue-entries/queue-entries.service";
 import { AppointmentsService } from "./appointments.service";
 
 /**
@@ -19,7 +20,10 @@ import { AppointmentsService } from "./appointments.service";
 @Controller("public")
 @Public()
 export class PublicAppointmentsController {
-  constructor(private readonly appointmentsService: AppointmentsService) {}
+  constructor(
+    private readonly appointmentsService: AppointmentsService,
+    private readonly queueEntriesService: QueueEntriesService,
+  ) {}
 
   @Get("locations/:locationId/appointment-availability")
   availability(
@@ -46,5 +50,11 @@ export class PublicAppointmentsController {
   @Post("appointments/:token/cancel")
   cancel(@Param("token") token: string) {
     return this.appointmentsService.cancelByPublicToken(token);
+  }
+
+  /** "I'm here" (§78 method 3) — returns the new queue ticket, including its token for the live page. */
+  @Post("appointments/:token/check-in")
+  checkIn(@Param("token") token: string) {
+    return this.queueEntriesService.checkInAppointmentByToken(token);
   }
 }

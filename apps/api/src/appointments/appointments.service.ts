@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Prisma, type AppointmentCancellationReason } from "@prisma/client";
+import { Prisma, type AppointmentCancellationReason, type AppointmentStatus } from "@prisma/client";
 import type {
   AppointmentAvailability,
   AppointmentCalendarDay,
@@ -31,6 +31,7 @@ import { normalizePhoneToE164 } from "../common/phone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
 import { addDays, dayOfWeekOf, formatLocalDate, localTimeToUtc } from "../common/timezone.util";
 import { formatLocalMinutes, generateSlots, type GeneratedSlot } from "./slot-engine";
+import { appointmentManageUrl } from "./appointment-links";
 
 const MINUTE_MS = 60_000;
 
@@ -43,7 +44,13 @@ type TenantSettingsRow = {
   appointmentMinLeadMinutes: number;
   appointmentAdvanceDays: number;
   appointmentCancelNoticeMinutes: number;
+  appointmentPriorityWindowMinutes: number;
+  appointmentNoShowGraceMinutes: number;
+  appointmentReminderOffsetsMinutes: number[];
 };
+
+/** Statuses that hold a slot (Phase 14: a checked-in customer is still using their time). */
+const SLOT_HOLDING: AppointmentStatus[] = ["BOOKED", "CHECKED_IN"];
 
 /** Everything slot generation needs that doesn't change per date — loaded once per request. */
 type BookingContext = {
@@ -64,6 +71,8 @@ const PUBLIC_INCLUDE = {
   service: true,
   location: true,
   tenant: true,
+  ticketCode: { select: { publicCode: true, active: true } },
+  queueEntry: { select: { publicToken: true } },
 } satisfies Prisma.AppointmentInclude;
 
 const STAFF_INCLUDE = {
@@ -142,6 +151,17 @@ export class AppointmentsService {
         ...(input.advanceDays !== undefined && { appointmentAdvanceDays: input.advanceDays }),
         ...(input.cancelNoticeMinutes !== undefined && {
           appointmentCancelNoticeMinutes: input.cancelNoticeMinutes,
+        }),
+        ...(input.priorityWindowMinutes !== undefined && {
+          appointmentPriorityWindowMinutes: input.priorityWindowMinutes,
+        }),
+        ...(input.noShowGraceMinutes !== undefined && {
+          appointmentNoShowGraceMinutes: input.noShowGraceMinutes,
+        }),
+        ...(input.reminderOffsetsMinutes !== undefined && {
+          appointmentReminderOffsetsMinutes: [...input.reminderOffsetsMinutes].sort(
+            (a, b) => b - a,
+          ),
         }),
       },
     });
@@ -305,6 +325,19 @@ export class AppointmentsService {
             idempotencyKey: input.idempotencyKey ?? null,
             bookedByStaffId,
           },
+        });
+        // D-12: the booking's check-in code, minted with it — secret, like
+        // the manage-page token (scanning it is a real capability).
+        await tx.code.create({
+          data: {
+            tenantId,
+            contextType: "APPOINTMENT_TICKET",
+            appointmentId: created.id,
+            publicCode: generateSecurePublicToken(),
+          },
+        });
+        const withRelations = await tx.appointment.findUniqueOrThrow({
+          where: { id: created.id },
           include: PUBLIC_INCLUDE,
         });
 
@@ -319,10 +352,10 @@ export class AppointmentsService {
             businessName: context.tenant.name,
             serviceName: context.service.name,
             when: formatAppointmentTime(created.startsAt, context.location.timezone),
-            manageUrl: this.manageUrl(created.publicToken),
+            manageUrl: appointmentManageUrl(this.config, created.publicToken),
           }),
         });
-        return created;
+        return withRelations;
       });
     } catch (err) {
       // Belt and braces for the twin check above: if the unique index still
@@ -399,6 +432,36 @@ export class AppointmentsService {
     return toStaffSummary(updated);
   }
 
+  /**
+   * Undo a no-show (ADR-013): NO_SHOW -> BOOKED, only on the appointment's
+   * own day (afterwards there's nothing to check in to). `noShowAt` stays
+   * set — it's the record that the no-show happened, and it's what stops
+   * the job re-marking this appointment a minute later.
+   */
+  async restoreNoShow(tenantId: string, appointmentId: string): Promise<StaffAppointmentSummary> {
+    const appointment = await this.prisma.appointment.findFirst({
+      where: { id: appointmentId, tenantId },
+      include: { location: true },
+    });
+    if (!appointment) throw appointmentNotFound();
+    const today = formatLocalDate(appointment.location.timezone, new Date());
+    const restored = await this.prisma.appointment.updateMany({
+      where: { id: appointmentId, status: "NO_SHOW", localDate: dateOnly(today) },
+      data: { status: "BOOKED" },
+    });
+    if (restored.count === 0) {
+      throw new ConflictException({
+        code: "APPOINTMENT_NOT_RESTORABLE",
+        message: "Only a missed appointment from today can be restored.",
+      });
+    }
+    const updated = await this.prisma.appointment.findUniqueOrThrow({
+      where: { id: appointmentId },
+      include: STAFF_INCLUDE,
+    });
+    return toStaffSummary(updated);
+  }
+
   /** Per-day BOOKED counts for one month (plan-review §5.5's calendar) — only days with at least one booking. */
   async getCalendar(
     tenantId: string,
@@ -412,7 +475,7 @@ export class AppointmentsService {
       where: {
         tenantId,
         locationId,
-        status: "BOOKED",
+        status: { in: SLOT_HOLDING },
         localDate: { gte: dateOnly(firstDay), lt: dateOnly(addMonth(firstDay)) },
       },
       _count: { _all: true },
@@ -547,14 +610,14 @@ export class AppointmentsService {
       db.appointment.findMany({
         where: {
           locationId: location.id,
-          status: "BOOKED",
+          status: { in: SLOT_HOLDING },
           startsAt: { lt: dayEnd },
           occupiedUntil: { gt: dayStart },
         },
         select: { startsAt: true, occupiedUntil: true },
       }),
       db.appointment.count({
-        where: { locationId: location.id, status: "BOOKED", localDate: dateOnly(date) },
+        where: { locationId: location.id, status: { in: SLOT_HOLDING }, localDate: dateOnly(date) },
       }),
     ]);
 
@@ -592,11 +655,6 @@ export class AppointmentsService {
     };
   }
 
-  private manageUrl(publicToken: string): string {
-    const base = this.config.get<string>("WEB_APP_URL") ?? "http://localhost:3000";
-    return `${base.replace(/\/$/, "")}/appointment/${publicToken}`;
-  }
-
   /** Same fire-and-forget rule as the queue (ADR-008): never awaited, never fails the booking. */
   private triggerNotificationProcessing(): void {
     void this.notifications
@@ -627,6 +685,9 @@ function toSettings(tenant: TenantSettingsRow): AppointmentSettings {
     minLeadMinutes: tenant.appointmentMinLeadMinutes,
     advanceDays: tenant.appointmentAdvanceDays,
     cancelNoticeMinutes: tenant.appointmentCancelNoticeMinutes,
+    priorityWindowMinutes: tenant.appointmentPriorityWindowMinutes,
+    noShowGraceMinutes: tenant.appointmentNoShowGraceMinutes,
+    reminderOffsetsMinutes: tenant.appointmentReminderOffsetsMinutes,
   };
 }
 
@@ -648,6 +709,10 @@ function toClosureSummary(closure: {
 
 function toPublicSummary(appointment: PublicAppointmentRow, now: Date): PublicAppointmentSummary {
   const deadline = cancelDeadline(appointment);
+  const isBooked = appointment.status === "BOOKED";
+  const isToday =
+    formatLocalDate(appointment.location.timezone, now) ===
+    appointment.localDate.toISOString().slice(0, 10);
   return {
     status: appointment.status,
     startsAt: appointment.startsAt.toISOString(),
@@ -659,9 +724,13 @@ function toPublicSummary(appointment: PublicAppointmentRow, now: Date): PublicAp
       name: appointment.service.name,
       durationMinutes: appointment.service.durationMinutes,
     },
-    canCancel: appointment.status === "BOOKED" && now <= deadline,
+    canCancel: isBooked && now <= deadline,
     cancelDeadline: deadline.toISOString(),
     cancellationReason: appointment.cancellationReason,
+    checkInCode:
+      isBooked && appointment.ticketCode?.active ? appointment.ticketCode.publicCode : null,
+    canCheckIn: isBooked && isToday,
+    queueTicketToken: appointment.queueEntry?.publicToken ?? null,
   };
 }
 
@@ -680,5 +749,7 @@ function toStaffSummary(appointment: StaffAppointmentRow): StaffAppointmentSumma
     cancelledAt: appointment.cancelledAt?.toISOString() ?? null,
     cancellationReason: appointment.cancellationReason,
     cancellationNote: appointment.cancellationNote,
+    checkedInAt: appointment.checkedInAt?.toISOString() ?? null,
+    noShowAt: appointment.noShowAt?.toISOString() ?? null,
   };
 }

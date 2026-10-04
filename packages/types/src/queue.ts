@@ -52,6 +52,10 @@ export interface StaffQueueEntrySummary extends QueueEntrySummary {
   assignedStaffName: string | null;
   /** Set only for a Phase 10 guest-card entry (customerName falls back to "Guest {N}" in that case too) — lets staff call out a number instead of a name. */
   guestCardNumber: number | null;
+  /** Set when this entry came from an appointment check-in (Phase 14). */
+  appointmentStartsAt: string | null;
+  /** True once a checked-in appointment's priority window has opened (G-25) — it sorts ahead of walk-ins. */
+  priorityActive: boolean;
 }
 
 /**

@@ -448,6 +448,19 @@ export class StaffApiClient {
     });
   }
 
+  /** Phase 14 — check a booked customer in; they join the queue (the location's, unless queueId is given). */
+  checkInAppointment(appointmentId: string, queueId?: string): Promise<StaffQueueEntrySummary> {
+    return this.request(`/tenants/me/appointments/${appointmentId}/check-in`, {
+      method: "POST",
+      body: queueId ? { queueId } : {},
+    });
+  }
+
+  /** Undo a no-show, same day only. */
+  restoreAppointment(appointmentId: string): Promise<StaffAppointmentSummary> {
+    return this.request(`/tenants/me/appointments/${appointmentId}/restore`, { method: "POST" });
+  }
+
   cancelAppointment(
     appointmentId: string,
     input: StaffCancelAppointmentInput,

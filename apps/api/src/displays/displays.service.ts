@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { DisplaySnapshot } from "@queueflow/types";
 import { PrismaService } from "../prisma/prisma.service";
+import { sortByQueueOrder } from "../queue-entries/queue-order";
 
 const NEXT_UP_LIMIT = 5;
 
@@ -48,13 +49,14 @@ export class DisplaysService {
         orderBy: { calledAt: "asc" },
         select: { ticketNumber: true, service: { select: { name: true } } },
       }),
+      // All WAITING rows, then sorted by the shared queue order (G-25) —
+      // the board must show the same "next" Call Next will actually pick.
       this.prisma.queueEntry.findMany({
         where: { queueId, status: "WAITING" },
-        orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
-        take: NEXT_UP_LIMIT,
-        select: { ticketNumber: true },
+        select: { id: true, joinedAt: true, priorityFrom: true, ticketNumber: true },
       }),
     ]);
+    const next = sortByQueueOrder(nextRows, new Date()).slice(0, NEXT_UP_LIMIT);
 
     return {
       tenant: { name: queue.tenant.name },
@@ -64,7 +66,7 @@ export class DisplaysService {
         ticketNumber: row.ticketNumber,
         serviceName: row.service.name,
       })),
-      next: nextRows.map((row) => row.ticketNumber),
+      next: next.map((row) => row.ticketNumber),
     };
   }
 }
