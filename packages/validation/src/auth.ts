@@ -95,3 +95,28 @@ export const updatePublicNameSchema = z.object({
   publicName: z.string().trim().max(60).nullable(),
 });
 export type UpdatePublicNameInput = z.infer<typeof updatePublicNameSchema>;
+
+/** Phase 19 — the hours report's range: ISO date-times, `from` inclusive, `to` exclusive (at most ~3 months). */
+export const hoursReportQuerySchema = z
+  .object({
+    from: z.string().datetime({ offset: true }),
+    to: z.string().datetime({ offset: true }),
+    locationId: z.string().uuid().optional(),
+    tenantUserId: z.string().uuid().optional(),
+  })
+  .refine((q) => new Date(q.to) > new Date(q.from), { message: "`to` must be after `from`." })
+  .refine((q) => new Date(q.to).getTime() - new Date(q.from).getTime() <= 93 * 24 * 3600 * 1000, {
+    message: "Choose a range of at most 3 months.",
+  });
+export type HoursReportQuery = z.infer<typeof hoursReportQuerySchema>;
+
+/** Phase 19 — correct a shift by hand (e.g. a forgotten clock-out). */
+export const updateShiftSchema = z
+  .object({
+    startedAt: z.string().datetime({ offset: true }),
+    endedAt: z.string().datetime({ offset: true }).nullable(),
+  })
+  .refine((v) => v.endedAt === null || new Date(v.endedAt) > new Date(v.startedAt), {
+    message: "The end must be after the start.",
+  });
+export type UpdateShiftInput = z.infer<typeof updateShiftSchema>;

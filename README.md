@@ -25,7 +25,7 @@ fan-out and rate limiting. See ADR-001 through ADR-010 for why.
 
 ```bash
 cp .env.example .env          # then fill in real values where noted
-docker compose up -d          # local Postgres + Redis
+docker compose up -d          # local Postgres, Redis and Mailpit
 pnpm install
 pnpm --filter @queueflow/api run db:migrate
 pnpm dev                      # starts both apps/api and apps/web
@@ -33,6 +33,11 @@ pnpm dev                      # starts both apps/api and apps/web
 
 - API: http://localhost:4001 (health check at `/health`)
 - Web: http://localhost:4000
+- Email inbox (Mailpit): http://localhost:8026. With `EMAIL_PROVIDER="smtp"` (the `.env.example`
+  default), every email the API sends lands here, including login codes, invites and queue
+  notifications.
+- Platform admin: http://localhost:4000/platform. Put your email in `PLATFORM_ADMIN_EMAILS` to
+  sign in.
 
 ## Quality gate
 

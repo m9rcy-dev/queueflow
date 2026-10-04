@@ -7,6 +7,7 @@ import type { PublicTicketSummary, QueueEntrySummary } from "@queueflow/types";
 import { publicApi } from "../../../../lib/api-client";
 import { TicketQrCode } from "../../../../components/TicketQrCode";
 import { BusinessLogo } from "../../../../components/BusinessLogo";
+import { PoweredByQueueFlow } from "../../../../components/QueueFlowLogo";
 
 const STATUS_COPY: Record<QueueEntrySummary["status"], { title: string; tone: BadgeTone }> = {
   WAITING: { title: "Waiting", tone: "info" },
@@ -142,6 +143,9 @@ export default function TicketPage() {
           </Button>
         )}
       </Card>
+      <footer className="mt-auto flex justify-center pt-4">
+        <PoweredByQueueFlow />
+      </footer>
     </main>
   );
 }

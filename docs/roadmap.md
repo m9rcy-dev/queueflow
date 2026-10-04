@@ -528,12 +528,19 @@ for someone else, who keep their place; positions count each customer's own line
 aliases) on the TV board. If a staff member clocks out, their customers go back to "anyone", keeping
 their place, and are told. Walk-in queue only: bookings stay pooled.
 
-### Phase 19 — Staff Earnings
+### Phase 19 — Hours, Branding, Platform Admin & Local Email
 
-**Status: Not started — decisions open**
+**Status: Done (2026-10-05)**. See `docs/status/phase-19.md` and ADR-018.
 
-Service prices, how staff are paid (commission / hourly / mix), recording payments vs leaving them to
-the POS, and per-staff pay-period reports with CSV export.
+The user decided (2026-10-05) that QueueFlow only records hours; pay goes through a point-of-sale
+system (integrated later, or built by us). This phase has four parts:
+
+- an hours report with CSV export, plus corrections for forgotten clock-outs;
+- a QueueFlow logo, shown alongside each business's logo;
+- a read-only platform (root) admin view of every business and the services it has on;
+- Mailpit as the local email inbox.
+
+Service prices and commission are dropped for now.
 
 ### Phase 20 — First Deploy
 
@@ -541,7 +548,8 @@ the POS, and per-staff pay-period reports with CSV export.
 
 Lock CORS to the web app's origin (it still allows any origin); a `render.yaml` for the API (build,
 `prisma migrate deploy`, start, health check); documented Vercel settings for the monorepo web app;
-a deploy runbook (Neon, Render, Vercel, Pingram sender verification, every environment variable, DNS
+a deploy runbook (Neon, Render, Vercel, Pingram sender verification, every environment variable
+including `PLATFORM_ADMIN_EMAILS`, DNS
 for `q.m9rcy.dev`, smoke-test checklist). Hosting per ADR-009 unless the user decides otherwise. A
 business sign-up screen (today only the API offers it) belongs here at the latest.
 

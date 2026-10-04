@@ -1,10 +1,22 @@
 # Project Status
 
 Last Updated: 2026-10-05
-Current Phase: Phase 18 — Staff on Shift & Preferred Staff, done (see `docs/status/phase-18.md`)
-Current Task: Phase 19 — Staff Earnings (decisions open)
+Current Phase: Phase 19 — Hours, Branding, Platform Admin & Local Email, done (see `docs/status/phase-19.md`)
+Current Task: Phase 20 — First Deploy
 
 ## Completed
+
+### Phase 19 — Hours, Branding, Platform Admin & Local Email
+
+QueueFlow records hours only; pay goes through a point-of-sale system (the user's decision). This
+phase added:
+
+- an hours report with CSV export, plus corrections recorded as "corrected by";
+- a QueueFlow logo alongside each business's logo;
+- a read-only `/platform` root admin, by email allow-list, with its own token;
+- Mailpit for local email (`EMAIL_PROVIDER=smtp`).
+
+ADR-018. 298 unit and 138 integration tests. Details: `docs/status/phase-19.md`.
 
 ### Phase 18 — Staff on Shift & Preferred Staff
 
@@ -165,7 +177,7 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Known Issues
 
-- **Don't run `pnpm quality` while `pnpm dev` is running**: the web production build overwrites `.next` and the running dev server loses its styling (restart it with `pnpm dev`). Phase 17's hand-over picker, Manager and Staff menus, customer area pages and mobile drawer, and Phase 18's new screens, haven't been checked in a browser yet (see `docs/status/phase-17.md` and `phase-18.md`).
+- **Don't run `pnpm quality` while `pnpm dev` is running**: the web production build overwrites `.next` and the running dev server loses its styling (restart it with `pnpm dev`). Phase 17's hand-over picker, Manager and Staff menus, customer area pages and mobile drawer, and Phase 18's and 19's new screens, haven't been checked in a browser yet (see `docs/status/phase-17.md`, `phase-18.md` and `phase-19.md`).
 - **CORS still allows any origin** (`main.ts`) — must be locked to the web app's origin before deploying; scheduled in Phase 17. Managers may now edit their location; the login screen's "remember this device" can't pick a location for multi-location owners (Phase 16 — see `docs/status/phase-16.md`).
 - **`AUTHENTICATOR_ENCRYPTION_KEY` must be set before any production deploy** (Phase 15) — the API refuses to boot in production without it.
 - Appointment link check-in doesn't prove physical presence; walk-in "nearly your turn" notifications catch up on the next queue change when a priority window opens, not on the minute (Phase 14 — see `docs/status/phase-14.md`).
@@ -190,12 +202,11 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-**Phase 19: Staff Earnings** (`docs/roadmap.md`). Decisions to settle with the user first:
+**Phase 20: First Deploy** (`docs/roadmap.md`). This covers:
 
-- service prices;
-- how staff are paid (commission, hourly from Phase 18's shifts, or a mix);
-- whether payments are recorded here or left to their point-of-sale system;
-- the pay-period report and CSV export, and who can see it.
+- locking CORS;
+- `render.yaml`, the Vercel settings and a deploy runbook, covering every environment variable,
+  including `PLATFORM_ADMIN_EMAILS`, `AUTHENTICATOR_ENCRYPTION_KEY` and the Pingram sender;
+- a business sign-up screen.
 
-Then Phase 20 (first deploy). The stacked branches (13 → 18) still need merging into `main`, in
-order, when the user asks.
+The stacked branches (13 → 19) still need merging into `main`, in order, when the user asks.

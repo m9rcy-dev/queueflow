@@ -8,6 +8,7 @@ import type { AppointmentSlot, QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../../lib/api-client";
 import { addDaysTo, formatLocalDate } from "../../../../lib/appointment-format";
 import { BusinessLogo } from "../../../../components/BusinessLogo";
+import { PoweredByQueueFlow } from "../../../../components/QueueFlowLogo";
 
 const DAYS_SHOWN = 14;
 
@@ -246,6 +247,9 @@ export default function BookAppointmentPage() {
           </Button>
         </form>
       </Card>
+      <footer className="mt-auto flex justify-center pt-4">
+        <PoweredByQueueFlow />
+      </footer>
     </main>
   );
 }

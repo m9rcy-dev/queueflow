@@ -104,7 +104,8 @@ export interface DeviceStaffOption {
 export interface DeviceContextResponse {
   /** Rotated on every call (ADR-004's rotation pattern) — always persist this one, not the token that was sent. */
   deviceTrustToken: string;
-  tenant: { id: string; name: string };
+  /** `logoPath` (Phase 19): the counter tablet's sign-in shows the business's logo beside QueueFlow's. */
+  tenant: { id: string; name: string; logoPath: string | null };
   /** The location this tablet belongs to (Phase 16); null only for tablets trusted before then. */
   location: { id: string; name: string } | null;
   staff: DeviceStaffOption[];
@@ -137,6 +138,8 @@ export interface StaffProfile {
   tenantName: string;
   locationName: string | null;
   appointmentEnabled: boolean;
+  /** Phase 19: the business logo's path on the API (prefix the API base URL), or null — shown beside QueueFlow's own in the app shell. */
+  tenantLogoPath: string | null;
   /** Phase 18: the name customers see (an alias, or null to use displayName). */
   publicName: string | null;
 }
@@ -160,4 +163,27 @@ export interface ShiftSummary {
 export interface OnShiftStaff {
   tenantUserId: string;
   name: string;
+}
+
+/** Phase 19 — one shift in the hours report. `minutes` counts an open shift up to now. */
+export interface ShiftRecord {
+  id: string;
+  tenantUserId: string;
+  staffName: string;
+  locationId: string;
+  locationName: string;
+  startedAt: string;
+  endedAt: string | null;
+  minutes: number;
+  /** Who last corrected the times by hand, if anyone (the clock record stays honest). */
+  editedByName: string | null;
+  editedAt: string | null;
+}
+
+/** Phase 19 — GET /tenants/me/shifts: the shifts in range plus each person's total. */
+export interface HoursReport {
+  from: string;
+  to: string;
+  shifts: ShiftRecord[];
+  totals: Array<{ tenantUserId: string; staffName: string; minutes: number; shiftCount: number }>;
 }

@@ -17,7 +17,7 @@ export function BusinessLogo({
 }: {
   logoPath: string | null;
   name: string;
-  size?: "md" | "lg";
+  size?: "sm" | "md" | "lg";
   standalone?: boolean;
   /** Centered above a page heading by default; false when it sits beside the name (the TV board's header). */
   centered?: boolean;
@@ -29,7 +29,9 @@ export function BusinessLogo({
       alt={standalone ? `${name} logo` : ""}
       className={[
         centered ? "mx-auto object-contain" : "shrink-0 object-contain",
-        size === "lg" ? "max-h-28 max-w-[16rem]" : "max-h-16 max-w-[12rem]",
+        { sm: "max-h-10 max-w-[3rem]", md: "max-h-16 max-w-[12rem]", lg: "max-h-28 max-w-[16rem]" }[
+          size
+        ],
       ].join(" ")}
     />
   );

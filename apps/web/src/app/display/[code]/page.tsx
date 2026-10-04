@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import type { DisplaySnapshot } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
+import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
 const WATCHDOG_INTERVAL_MS = 15_000;
 // Comfortably more than the server's 25s heartbeat (queue-events'
@@ -107,7 +108,7 @@ export default function DisplayPage() {
   return (
     <FullScreen centered={false}>
       {reconnecting && (
-        <div className="absolute right-6 top-6 rounded-md bg-amber-500/20 px-3 py-1 text-sm text-amber-200">
+        <div className="absolute left-1/2 top-6 -translate-x-1/2 rounded-md bg-amber-500/20 px-3 py-1 text-sm text-amber-200">
           Reconnecting…
         </div>
       )}
@@ -125,6 +126,9 @@ export default function DisplayPage() {
           <p className="text-[clamp(0.9rem,1.3vw,1.5rem)] text-white/60">
             {snapshot.location.name}
           </p>
+        </div>
+        <div className="ml-auto">
+          <PoweredByQueueFlow tone="dark" />
         </div>
       </header>
 

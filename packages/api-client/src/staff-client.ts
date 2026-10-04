@@ -21,6 +21,7 @@ import type {
   QueueTodayStats,
   ServiceSummary,
   ShiftSummary,
+  HoursReport,
   OnShiftStaff,
   StaffProfile,
   StaffQueueEntrySummary,
@@ -335,6 +336,27 @@ export class StaffApiClient {
   /** Phase 18 — clock out; customers waiting for you go back to "anyone", keeping their place. */
   clockOut(): Promise<void> {
     return this.request("/tenants/me/shifts/clock-out", { method: "POST" });
+  }
+
+  /** Phase 19 — the hours report for [from, to) (ISO date-times); scoped by role server-side. */
+  hoursReport(params: {
+    from: string;
+    to: string;
+    locationId?: string;
+    tenantUserId?: string;
+  }): Promise<HoursReport> {
+    const query = new URLSearchParams(
+      Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1])),
+    );
+    return this.request(`/tenants/me/shifts?${query.toString()}`);
+  }
+
+  /** Phase 19 — correct a shift's times (someone else's; owner/admin, or a Manager at their location). */
+  updateShift(
+    shiftId: string,
+    input: { startedAt: string; endedAt: string | null },
+  ): Promise<void> {
+    return this.request(`/tenants/me/shifts/${shiftId}`, { method: "PATCH", body: input });
   }
 
   /** Phase 18 — who's on shift at a location (preference picker). */

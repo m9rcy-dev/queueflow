@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import { AuthService } from "./auth.service";
 import { AuthenticatorService } from "../authenticator/authenticator.service";
@@ -117,6 +118,7 @@ describe("AuthService", () => {
         { provide: MailService, useValue: mailService },
         { provide: PinService, useValue: pinService },
         { provide: AuthenticatorService, useValue: authenticator },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
       ],
     }).compile();
 
@@ -478,7 +480,8 @@ describe("AuthService", () => {
       const result = await service.getDeviceContext("presented-token");
 
       expect(result.deviceTrustToken).toBe("opaque-device-trust-token");
-      expect(result.tenant).toEqual({ id: tenant.id, name: tenant.name });
+      // No logo uploaded — the tablet sign-in shows the name alone (Phase 19).
+      expect(result.tenant).toEqual({ id: tenant.id, name: tenant.name, logoPath: null });
       expect(result.staff).toEqual([
         { tenantUserId: "tu-1", displayName: "Alice", role: "STAFF", hasPin: true },
         { tenantUserId: "tu-2", displayName: "Joe", role: "TENANT_OWNER", hasPin: false },

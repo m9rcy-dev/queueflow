@@ -10,6 +10,7 @@ import { publicApi } from "../../../lib/api-client";
 import { formatDateTimeIn } from "../../../lib/appointment-format";
 import { TicketQrCode } from "../../../components/TicketQrCode";
 import { BusinessLogo } from "../../../components/BusinessLogo";
+import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
 /**
  * An appointment's own page (Phase 13), reached from the booking
@@ -197,6 +198,9 @@ export default function AppointmentPage() {
             The business cancelled this appointment.
           </p>
         )}
+      <footer className="mt-auto flex justify-center pt-4">
+        <PoweredByQueueFlow />
+      </footer>
     </main>
   );
 }

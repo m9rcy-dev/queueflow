@@ -8,6 +8,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
+import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
 /**
  * The QR-landing page (plan §9/§19) — scan a QUEUE-context code, land here,
@@ -221,6 +222,9 @@ export default function CodeLandingPage() {
         </form>
       </Card>
       {bookingLink}
+      <footer className="mt-auto flex justify-center pt-4">
+        <PoweredByQueueFlow />
+      </footer>
     </main>
   );
 }

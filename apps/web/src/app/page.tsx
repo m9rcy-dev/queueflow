@@ -1,3 +1,5 @@
+import { QueueFlowLogo } from "../components/QueueFlowLogo";
+
 /**
  * There is no generic landing page by design — every real visitor arrives
  * via a tenant-specific QR code/poster URL (/q/{code}, /c/{code},
@@ -7,7 +9,9 @@
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
-      <h1 className="text-3xl font-semibold text-text-primary">QueueFlow</h1>
+      <h1>
+        <QueueFlowLogo size="lg" />
+      </h1>
       <p className="text-text-secondary">
         There&apos;s nothing to see at this address directly — customers arrive via a
         business&apos;s own QR code, and staff sign in at{" "}

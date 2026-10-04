@@ -25,5 +25,21 @@ services:
     ports:
       - "6379:6379"
 
+  # Local email inbox (EMAIL_PROVIDER=smtp): every email the API sends —
+  # login codes, invites, queue notifications — lands here instead of a real
+  # inbox. View at http://localhost:8026. Ports differ from budget-terry's
+  # Mailpit (1025/8025) so both projects can run at once.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1026:1025" # SMTP
+      - "8026:8025" # Web UI
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8025/api/v1/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   queueflow_postgres_data:

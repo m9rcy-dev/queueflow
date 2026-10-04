@@ -11,6 +11,10 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CloseIcon, MenuIcon } from "./icons";
+import { PoweredByQueueFlow } from "./QueueFlowLogo";
+
+/* eslint-disable @next/next/no-img-element -- next/image's optimizer route is blocked (Phase 12); see BusinessLogo. */
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
 
 export interface ShellNavItem {
   href: string;
@@ -44,6 +48,7 @@ function initials(name: string): string {
  */
 export function Shell({
   brand,
+  brandLogoPath = null,
   navItems,
   profileName,
   profileDetail,
@@ -53,6 +58,8 @@ export function Shell({
   children,
 }: {
   brand: string;
+  /** Phase 19: the business's logo (API path) beside its name; QueueFlow's own sits at the bottom. */
+  brandLogoPath?: string | null;
   navItems: ShellNavItem[];
   profileName: string;
   profileDetail: string;
@@ -108,8 +115,17 @@ export function Shell({
           drawerOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="mb-6 flex items-center justify-between px-1">
-          <span className="truncate text-base font-semibold text-text-primary">{brand}</span>
+        <div className="mb-6 flex items-center justify-between gap-2 px-1">
+          <span className="flex min-w-0 items-center gap-2">
+            {brandLogoPath && (
+              <img
+                src={`${API_URL}${brandLogoPath}`}
+                alt=""
+                className="h-8 max-w-[5rem] shrink-0 object-contain"
+              />
+            )}
+            <span className="truncate text-base font-semibold text-text-primary">{brand}</span>
+          </span>
           <button
             type="button"
             aria-label="Close navigation"
@@ -194,6 +210,9 @@ export function Shell({
               <span className="block truncate text-xs text-text-secondary">{profileDetail}</span>
             </span>
           </button>
+          <div className="mt-3 flex justify-center">
+            <PoweredByQueueFlow />
+          </div>
         </div>
       </aside>
 
@@ -209,7 +228,16 @@ export function Shell({
           >
             <MenuIcon className="h-5 w-5" />
           </button>
-          <span className="truncate px-3 text-sm font-semibold text-text-primary">{brand}</span>
+          <span className="flex min-w-0 items-center gap-2 px-3">
+            {brandLogoPath && (
+              <img
+                src={`${API_URL}${brandLogoPath}`}
+                alt=""
+                className="h-6 max-w-[4rem] shrink-0 object-contain"
+              />
+            )}
+            <span className="truncate text-sm font-semibold text-text-primary">{brand}</span>
+          </span>
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-bold text-primary">
             {initials(profileName)}
           </span>

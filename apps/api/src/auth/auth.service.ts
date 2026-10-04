@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { ConfigService } from "@nestjs/config";
 import {
   BadRequestException,
   ConflictException,
@@ -82,6 +83,7 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly pinService: PinService,
     private readonly authenticator: AuthenticatorService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -193,6 +195,46 @@ export class AuthService {
     return this.issueSession(user, membership.tenant, membership.role);
   }
 
+  /**
+   * Platform (root) sign-in, step 1 (Phase 19, ADR-018). Only emails in
+   * PLATFORM_ADMIN_EMAILS get a code; anyone else gets the same silent
+   * 202, so the endpoint never reveals who the admins are. An allow-listed
+   * email with no account yet gets one (they need no business).
+   */
+  async requestPlatformLoginCode(email: string): Promise<void> {
+    if (!isPlatformAdminEmail(this.configService.get<string>("PLATFORM_ADMIN_EMAILS"), email)) {
+      return;
+    }
+    const user = await this.prisma.user.upsert({
+      where: { email },
+      update: {},
+      create: { email, displayName: "QueueFlow admin" },
+    });
+    await this.issueAndSendLoginCode(user.id, user.email);
+  }
+
+  /** Platform sign-in, step 2 — an emailed or authenticator code, as for staff (ADR-014). */
+  async verifyPlatformLogin(email: string, submittedCode: string) {
+    if (!isPlatformAdminEmail(this.configService.get<string>("PLATFORM_ADMIN_EMAILS"), email)) {
+      throw invalidLoginCode();
+    }
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw invalidLoginCode();
+    const owner = { userId: user.id };
+    const authenticatorResult = await this.authenticator.check(owner, submittedCode);
+    if (authenticatorResult !== "valid") {
+      const emailCodeMatched = await this.consumeEmailedCode(user.id, submittedCode);
+      if (!emailCodeMatched) {
+        if (authenticatorResult === "invalid") await this.authenticator.recordFailure(owner);
+        throw invalidLoginCode();
+      }
+    }
+    return {
+      accessToken: this.tokenService.generatePlatformToken(user.id, user.email),
+      admin: { email: user.email, displayName: user.displayName },
+    };
+  }
+
   /** Second step when verifyLoginCode returned requiresTenantSelection. */
   async selectTenant(pendingToken: string, tenantId: string) {
     const { sub: userId } = this.tokenService.verifyPendingToken(pendingToken);
@@ -301,7 +343,10 @@ export class AuthService {
     const rotatedToken = await this.rotateDeviceTrust(trust);
 
     const [tenant, location, memberships] = await Promise.all([
-      this.prisma.tenant.findUniqueOrThrow({ where: { id: trust.tenantId } }),
+      this.prisma.tenant.findUniqueOrThrow({
+        where: { id: trust.tenantId },
+        include: { logo: { select: { updatedAt: true } } },
+      }),
       trust.locationId
         ? this.prisma.location.findUnique({
             where: { id: trust.locationId },
@@ -321,7 +366,11 @@ export class AuthService {
 
     return {
       deviceTrustToken: rotatedToken,
-      tenant: { id: tenant.id, name: tenant.name },
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        logoPath: tenantLogoPath(tenant.id, tenant.logo),
+      },
       location,
       staff: memberships.map((membership) => ({
         tenantUserId: membership.id,
@@ -589,7 +638,9 @@ export class AuthService {
       where: { id: user.tenantUserId },
       include: {
         user: { select: { displayName: true, email: true } },
-        tenant: { select: { name: true, appointmentEnabled: true } },
+        tenant: {
+          select: { name: true, appointmentEnabled: true, logo: { select: { updatedAt: true } } },
+        },
         location: { select: { name: true } },
       },
     });
@@ -598,6 +649,7 @@ export class AuthService {
       displayName: membership.user.displayName,
       email: membership.user.email,
       tenantName: membership.tenant.name,
+      tenantLogoPath: tenantLogoPath(membership.tenantId, membership.tenant.logo),
       locationName: membership.location?.name ?? null,
       appointmentEnabled: membership.tenant.appointmentEnabled,
       publicName: membership.publicName,
@@ -734,4 +786,14 @@ function toMembershipSummary(membership: {
     tenantName: membership.tenant.name,
     role: membership.role,
   };
+}
+
+/** Phase 19 (ADR-018) — the root admins: a comma-separated allow-list in config, matched case-insensitively. */
+export function isPlatformAdminEmail(allowList: string | undefined, email: string): boolean {
+  if (!allowList) return false;
+  const wanted = email.trim().toLowerCase();
+  return allowList
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .some((entry) => entry.length > 0 && entry === wanted);
 }

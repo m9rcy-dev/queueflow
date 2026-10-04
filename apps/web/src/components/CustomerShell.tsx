@@ -26,6 +26,7 @@ export function CustomerShell({
   return (
     <Shell
       brand={summary.tenant.name}
+      brandLogoPath={summary.tenant.logoPath}
       navItems={[
         { href: "/c/portal", label: "Queues", Icon: TicketIcon },
         { href: "/c/portal/appointments", label: "Appointments", Icon: CalendarIcon },

@@ -10,6 +10,7 @@ import { Shell, type ShellNavItem } from "./Shell";
 import {
   AccountIcon,
   CalendarIcon,
+  ClockIcon,
   KeyIcon,
   LocationIcon,
   LogoutIcon,
@@ -41,6 +42,9 @@ export function navItemsFor(session: StaffSession): ShellNavItem[] {
   if (session.appointmentEnabled) {
     items.push({ href: "/admin/appointments", label: "Appointments", Icon: CalendarIcon });
   }
+  // Phase 19: everyone sees hours — Staff their own, Managers their
+  // location's, owner/admin everyone's (the API scopes it).
+  items.push({ href: "/admin/hours", label: "Hours", Icon: ClockIcon });
   if (isBusinessAdmin(session.role)) {
     items.push(
       { href: "/admin/codes", label: "QR Codes", Icon: QrIcon },
@@ -79,6 +83,7 @@ export function AppShell({
   return (
     <Shell
       brand={session.tenantName}
+      brandLogoPath={session.tenantLogoPath}
       navItems={navItemsFor(session)}
       profileName={session.displayName}
       profileDetail={detail}

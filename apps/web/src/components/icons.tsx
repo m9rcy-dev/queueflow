@@ -133,3 +133,12 @@ export function CloseIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function ClockIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10" cy="10" r="7.25" />
+      <path d="M10 6v4.25l2.75 1.75" />
+    </svg>
+  );
+}

@@ -1,6 +1,13 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import type { OnShiftStaff, ShiftSummary } from "@queueflow/types";
+import type { HoursReport, OnShiftStaff, ShiftRecord, ShiftSummary } from "@queueflow/types";
+import type { HoursReportQuery, UpdateShiftInput } from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueueEventsService } from "../queue-events/queue-events.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -99,6 +106,15 @@ export class ShiftsService {
    * used when a member is removed. Safe to call when not on shift.
    */
   async endShiftFor(tenantId: string, tenantUserId: string): Promise<void> {
+    await this.prisma.staffShift.updateMany({
+      where: { tenantUserId, endedAt: null },
+      data: { endedAt: new Date() },
+    });
+    await this.releaseCustomersOf(tenantId, tenantUserId);
+  }
+
+  /** Waiting customers who asked for this person go back to "anyone", in place, and are told (ADR-017). */
+  private async releaseCustomersOf(tenantId: string, tenantUserId: string): Promise<void> {
     const member = await this.prisma.tenantUser.findFirst({
       where: { id: tenantUserId, tenantId },
       include: { user: { select: { displayName: true } }, tenant: { select: { name: true } } },
@@ -106,10 +122,6 @@ export class ShiftsService {
     if (!member) return;
 
     const releasedQueueIds = await this.prisma.$transaction(async (tx) => {
-      await tx.staffShift.updateMany({
-        where: { tenantUserId, endedAt: null },
-        data: { endedAt: new Date() },
-      });
       const waiting = await tx.queueEntry.findMany({
         where: { tenantId, preferredStaffId: tenantUserId, status: { in: ["WAITING", "SKIPPED"] } },
         include: { customer: { select: { phoneE164: true, email: true } } },
@@ -146,6 +158,143 @@ export class ShiftsService {
     }
   }
 
+  /**
+   * The hours report (Phase 19): shifts that started in [from, to), with each
+   * person's total. Owner/admin see everyone (optionally one location);
+   * a Manager their location; Staff only their own hours. Open shifts count
+   * up to now. Pay itself is left to the business's point-of-sale/payroll —
+   * this is the time record to feed it (CSV export in the web app).
+   */
+  async report(actor: ShiftActor, query: HoursReportQuery): Promise<HoursReport> {
+    const where: Prisma.StaffShiftWhereInput = {
+      tenantId: actor.tenantId,
+      startedAt: { gte: new Date(query.from), lt: new Date(query.to) },
+    };
+    if (actor.role === "STAFF") {
+      where.tenantUserId = actor.tenantUserId;
+    } else {
+      if (query.tenantUserId) where.tenantUserId = query.tenantUserId;
+      if (actor.role === "MANAGER") {
+        // Their location only; asking about another shows nothing, not an error (ADR-015).
+        if (!actor.locationId || (query.locationId && query.locationId !== actor.locationId)) {
+          return { from: query.from, to: query.to, shifts: [], totals: [] };
+        }
+        where.locationId = actor.locationId;
+      } else if (query.locationId) {
+        where.locationId = query.locationId;
+      }
+    }
+
+    const rows = await this.prisma.staffShift.findMany({
+      where,
+      include: {
+        tenantUser: MEMBER_INCLUDE,
+        editedBy: MEMBER_INCLUDE,
+        location: { select: { name: true } },
+      },
+      orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+    });
+    const now = Date.now();
+    const shifts: ShiftRecord[] = rows.map((row) => ({
+      id: row.id,
+      tenantUserId: row.tenantUserId,
+      staffName: row.tenantUser.user.displayName,
+      locationId: row.locationId,
+      locationName: row.location.name,
+      startedAt: row.startedAt.toISOString(),
+      endedAt: row.endedAt?.toISOString() ?? null,
+      minutes: Math.max(
+        0,
+        Math.round(((row.endedAt?.getTime() ?? now) - row.startedAt.getTime()) / 60_000),
+      ),
+      editedByName: row.editedBy?.user.displayName ?? null,
+      editedAt: row.editedAt?.toISOString() ?? null,
+    }));
+
+    const totals = new Map<string, HoursReport["totals"][number]>();
+    for (const shift of shifts) {
+      const total = totals.get(shift.tenantUserId) ?? {
+        tenantUserId: shift.tenantUserId,
+        staffName: shift.staffName,
+        minutes: 0,
+        shiftCount: 0,
+      };
+      total.minutes += shift.minutes;
+      total.shiftCount += 1;
+      totals.set(shift.tenantUserId, total);
+    }
+    return {
+      from: query.from,
+      to: query.to,
+      shifts,
+      totals: [...totals.values()].sort((a, b) => a.staffName.localeCompare(b.staffName)),
+    };
+  }
+
+  /**
+   * Correct a shift's times by hand (Phase 19) — typically a forgotten
+   * clock-out. Owner/admin anywhere; a Manager at their location; never
+   * your own (hours are pay: someone else signs them off). Records who
+   * edited it and when.
+   */
+  async update(actor: ShiftActor, shiftId: string, input: UpdateShiftInput): Promise<void> {
+    const shift = await this.prisma.staffShift.findFirst({
+      where: { id: shiftId, tenantId: actor.tenantId },
+    });
+    if (
+      !shift ||
+      actor.role === "STAFF" ||
+      (actor.role === "MANAGER" && shift.locationId !== actor.locationId)
+    ) {
+      throw new NotFoundException(SHIFT_NOT_FOUND);
+    }
+    if (shift.tenantUserId === actor.tenantUserId) {
+      throw new ConflictException({
+        code: "OWN_SHIFT",
+        message: "Someone else needs to correct your own hours.",
+      });
+    }
+    const startedAt = new Date(input.startedAt);
+    const endedAt = input.endedAt ? new Date(input.endedAt) : null;
+    const now = new Date();
+    if (startedAt > now || (endedAt && endedAt > now)) {
+      throw new BadRequestException({
+        code: "SHIFT_IN_FUTURE",
+        message: "Shift times can't be in the future.",
+      });
+    }
+    // Only the shift that's still open may stay open (one open shift per person).
+    if (endedAt === null && shift.endedAt !== null) {
+      throw new BadRequestException({
+        code: "SHIFT_END_REQUIRED",
+        message: "A finished shift needs an end time.",
+      });
+    }
+    const overlapping = await this.prisma.staffShift.findFirst({
+      where: {
+        tenantUserId: shift.tenantUserId,
+        id: { not: shift.id },
+        startedAt: { lt: endedAt ?? now },
+        OR: [{ endedAt: null }, { endedAt: { gt: startedAt } }],
+      },
+      select: { id: true },
+    });
+    if (overlapping) {
+      throw new ConflictException({
+        code: "SHIFT_OVERLAP",
+        message: "That overlaps another shift for the same person.",
+      });
+    }
+
+    const closing = shift.endedAt === null && endedAt !== null;
+    await this.prisma.staffShift.update({
+      where: { id: shift.id },
+      data: { startedAt, endedAt, editedById: actor.tenantUserId, editedAt: now },
+    });
+    // Closing someone's forgotten shift takes them off the floor, like clocking out.
+    if (closing) await this.releaseCustomersOf(shift.tenantId, shift.tenantUserId);
+  }
+
   /** Who's on shift at a location — the people customers can choose (public names only). */
   async onShift(locationId: string): Promise<OnShiftStaff[]> {
     const shifts = await this.prisma.staffShift.findMany({
@@ -159,6 +308,9 @@ export class ShiftsService {
     }));
   }
 }
+
+const SHIFT_NOT_FOUND = { code: "SHIFT_NOT_FOUND", message: "Shift not found." };
+const MEMBER_INCLUDE = { include: { user: { select: { displayName: true } } } } as const;
 
 function toShiftSummary(shift: {
   id: string;

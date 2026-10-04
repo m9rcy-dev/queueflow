@@ -1,4 +1,4 @@
-import { randomBytes, randomInt, createHash } from "node:crypto";
+import { randomBytes, randomInt, createHash, createHmac } from "node:crypto";
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
@@ -58,6 +58,14 @@ export interface PendingTokenPayload {
  * mint a credential" concerns. Business rules (attempt limits, whether a
  * code is still valid) live in AuthService; this is pure generation/hashing.
  */
+const PLATFORM_TOKEN_PURPOSE = "platform-admin";
+
+export interface PlatformTokenPayload {
+  sub: string;
+  email: string;
+  purpose: typeof PLATFORM_TOKEN_PURPOSE;
+}
+
 @Injectable()
 export class TokenService {
   constructor(
@@ -111,6 +119,38 @@ export class TokenService {
   generateCustomerAccessToken(payload: CustomerAccessTokenPayload): string {
     const expiresIn = this.configService.get("JWT_ACCESS_TTL") ?? "1h";
     return this.jwtService.sign(payload, { expiresIn });
+  }
+
+  /**
+   * Platform (root) admin token (Phase 19, ADR-018). Signed with a key
+   * derived from the access secret but distinct from it, so it can never
+   * pass as a staff or customer token (and vice versa). Short-lived and
+   * not refreshable: the platform view is occasional and read-only.
+   */
+  generatePlatformToken(userId: string, email: string): string {
+    const payload: PlatformTokenPayload = { sub: userId, email, purpose: PLATFORM_TOKEN_PURPOSE };
+    return this.jwtService.sign(payload, { expiresIn: "4h", secret: this.platformSecret() });
+  }
+
+  /** Throws UnauthorizedException unless `token` is a live platform token. */
+  verifyPlatformToken(token: string): PlatformTokenPayload {
+    try {
+      const payload = this.jwtService.verify<PlatformTokenPayload>(token, {
+        secret: this.platformSecret(),
+      });
+      if (payload.purpose !== PLATFORM_TOKEN_PURPOSE) throw new Error("wrong purpose");
+      return payload;
+    } catch {
+      throw new UnauthorizedException({
+        code: "PLATFORM_SESSION_INVALID",
+        message: "Please sign in again.",
+      });
+    }
+  }
+
+  private platformSecret(): string {
+    const base = this.configService.get<string>("JWT_ACCESS_SECRET") ?? "dev-only-change-me";
+    return createHmac("sha256", base).update("queueflow-platform-admin").digest("hex");
   }
 
   /**

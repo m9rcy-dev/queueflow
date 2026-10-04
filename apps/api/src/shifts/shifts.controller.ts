@@ -1,5 +1,22 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from "@nestjs/common";
-import { clockInSchema, type ClockInInput } from "@queueflow/validation";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from "@nestjs/common";
+import {
+  clockInSchema,
+  hoursReportQuerySchema,
+  updateShiftSchema,
+  type ClockInInput,
+  type HoursReportQuery,
+  type UpdateShiftInput,
+} from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { CurrentUser } from "../auth/current-user.decorator";
 import type { RequestUser } from "../auth/request-user.interface";
@@ -31,6 +48,26 @@ export class ShiftsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async clockOut(@CurrentUser() user: RequestUser): Promise<void> {
     await this.shifts.clockOut(user);
+  }
+
+  /** Phase 19 — the hours report (scoped by role in the service). */
+  @Get("shifts")
+  report(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(hoursReportQuerySchema)) query: HoursReportQuery,
+  ) {
+    return this.shifts.report(user, query);
+  }
+
+  /** Phase 19 — correct a shift's times (owner/admin, or a Manager at their location; never your own). */
+  @Patch("shifts/:id")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async update(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(updateShiftSchema)) body: UpdateShiftInput,
+  ): Promise<void> {
+    await this.shifts.update(user, id, body);
   }
 
   @Get("locations/:locationId/on-shift")

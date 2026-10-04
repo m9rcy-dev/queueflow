@@ -136,6 +136,7 @@ model TenantUser {
   servedQueueEntries    QueueEntry[]  @relation("QueueEntryServedBy")
   preferredQueueEntries QueueEntry[]  @relation("QueueEntryPreferredStaff")
   shifts                StaffShift[]
+  editedShifts          StaffShift[]  @relation("StaffShiftEditedBy")
   bookedAppointments    Appointment[] @relation("AppointmentBookedBy")
   cancelledAppointments Appointment[] @relation("AppointmentCancelledBy")
 
@@ -950,9 +951,14 @@ model StaffShift {
   tenantUserId String
   startedAt    DateTime  @default(now())
   endedAt      DateTime?
+  // Phase 19: set when someone corrects the times by hand, so the hours
+  // report shows the record was changed and by whom.
+  editedById   String?
+  editedAt     DateTime?
 
-  location   Location   @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  tenantUser TenantUser @relation(fields: [tenantUserId], references: [id], onDelete: Cascade)
+  location   Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  tenantUser TenantUser  @relation(fields: [tenantUserId], references: [id], onDelete: Cascade)
+  editedBy   TenantUser? @relation("StaffShiftEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([locationId, endedAt])

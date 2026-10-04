@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { EmailProvider } from "./email-provider";
 import { MockEmailProvider } from "./mock-email.provider";
 import { PingramEmailProvider } from "./pingram-email.provider";
+import { SmtpEmailProvider } from "./smtp-email.provider";
 import { SmsProvider } from "./sms-provider";
 import { MockSmsProvider } from "./mock-sms.provider";
 import { NotificationsService } from "./notifications.service";
@@ -20,6 +21,7 @@ import { NotificationsService } from "./notifications.service";
     NotificationsService,
     MockEmailProvider,
     PingramEmailProvider,
+    SmtpEmailProvider,
     MockSmsProvider,
     {
       provide: EmailProvider,
@@ -27,13 +29,18 @@ import { NotificationsService } from "./notifications.service";
         config: ConfigService,
         mock: MockEmailProvider,
         pingram: PingramEmailProvider,
+        smtp: SmtpEmailProvider,
       ): EmailProvider => {
         const selected = config.get<string>("EMAIL_PROVIDER") ?? "mock";
         if (selected === "mock") return mock;
         if (selected === "pingram") return pingram;
-        throw new Error(`Unknown EMAIL_PROVIDER "${selected}" — expected "mock" or "pingram".`);
+        // Phase 19 — local Mailpit (docker-compose) or any SMTP relay.
+        if (selected === "smtp") return smtp;
+        throw new Error(
+          `Unknown EMAIL_PROVIDER "${selected}" — expected "mock", "pingram" or "smtp".`,
+        );
       },
-      inject: [ConfigService, MockEmailProvider, PingramEmailProvider],
+      inject: [ConfigService, MockEmailProvider, PingramEmailProvider, SmtpEmailProvider],
     },
     {
       provide: SmsProvider,

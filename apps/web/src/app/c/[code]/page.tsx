@@ -8,6 +8,7 @@ import type { GeneralCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { customerApi } from "../../../lib/customer-api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
+import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
 type Step =
   | { name: "loading" }
@@ -158,6 +159,9 @@ export default function CustomerSignupLandingPage() {
           }}
         />
       )}
+      <footer className="mt-auto flex justify-center pt-4">
+        <PoweredByQueueFlow />
+      </footer>
     </main>
   );
 }

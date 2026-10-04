@@ -6,6 +6,8 @@ import { Button, Card, Input, OtpCodeInput } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
 import type { DeviceContextResponse, MembershipSummary } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
+import { BusinessLogo } from "../../../components/BusinessLogo";
+import { QueueFlowLogo } from "../../../components/QueueFlowLogo";
 
 type Step =
   | { name: "loading" }
@@ -56,7 +58,10 @@ export default function StaffLoginPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 bg-bg p-6">
-      <h1 className="text-center text-2xl font-semibold text-text-primary">QueueFlow — Staff</h1>
+      <div className="flex flex-col items-center gap-2">
+        <QueueFlowLogo size="lg" />
+        <h1 className="text-center text-base font-medium text-text-secondary">Staff sign in</h1>
+      </div>
 
       {step.name === "device-staff-picker" && (
         <StaffPicker
@@ -174,7 +179,9 @@ function StaffPicker({
 }) {
   return (
     <Card className="flex flex-col gap-4">
-      <div>
+      <div className="flex flex-col items-center gap-2 text-center">
+        {/* Phase 19 — a counter tablet knows its business: show its logo beside QueueFlow's. */}
+        <BusinessLogo logoPath={context.tenant.logoPath} name={context.tenant.name} />
         <h2 className="text-lg font-medium text-text-primary">{context.tenant.name}</h2>
         <p className="text-sm text-text-secondary">Who are you?</p>
       </div>
