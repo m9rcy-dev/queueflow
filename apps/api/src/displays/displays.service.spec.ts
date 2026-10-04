@@ -60,7 +60,7 @@ describe("DisplaysService", () => {
   });
 
   describe("getSnapshot", () => {
-    it("returns only ticket numbers and service names — never customer or staff identity", async () => {
+    it("shows ticket numbers, services and staff names — never customer identity (C-01)", async () => {
       prisma.queue.findUniqueOrThrow.mockResolvedValue({
         name: "Main Queue",
         status: "ACTIVE",
@@ -69,8 +69,19 @@ describe("DisplaysService", () => {
       });
       prisma.queueEntry.findMany
         .mockResolvedValueOnce([
-          { ticketNumber: 12, service: { name: "Haircut" } },
-          { ticketNumber: 13, service: { name: "Beard Trim" } },
+          {
+            ticketNumber: 12,
+            service: { name: "Haircut" },
+            // Handed over to Ben (Phase 17) — the board shows who's doing the work.
+            servedByStaff: { publicName: null, user: { displayName: "Ben" } },
+            assignedStaff: { publicName: null, user: { displayName: "Ana" } },
+          },
+          {
+            ticketNumber: 13,
+            service: { name: "Beard Trim" },
+            servedByStaff: null,
+            assignedStaff: { publicName: "Ace", user: { displayName: "Ana" } },
+          },
         ])
         .mockResolvedValueOnce([
           // Returned out of order on purpose: the service sorts by queue order (G-25).
@@ -79,12 +90,14 @@ describe("DisplaysService", () => {
             joinedAt: new Date("2026-01-01T00:05:00Z"),
             priorityFrom: null,
             ticketNumber: 15,
+            preferredStaff: { publicName: "Ace", user: { displayName: "Ana" } },
           },
           {
             id: "e14",
             joinedAt: new Date("2026-01-01T00:01:00Z"),
             priorityFrom: null,
             ticketNumber: 14,
+            preferredStaff: null,
           },
         ]);
 
@@ -95,16 +108,21 @@ describe("DisplaysService", () => {
         location: { name: "Christchurch" },
         queue: { name: "Main Queue", status: "ACTIVE" },
         nowServing: [
-          { ticketNumber: 12, serviceName: "Haircut" },
-          { ticketNumber: 13, serviceName: "Beard Trim" },
+          { ticketNumber: 12, serviceName: "Haircut", staffName: "Ben" },
+          // A public name (alias) wins over the display name (Phase 18).
+          { ticketNumber: 13, serviceName: "Beard Trim", staffName: "Ace" },
         ],
-        next: [14, 15],
+        next: [
+          { ticketNumber: 14, preferredStaffName: null },
+          { ticketNumber: 15, preferredStaffName: "Ace" },
+        ],
         waitingCount: 2,
       });
-      // Neither query ever asked for a customer or staff field in the first place.
+      // Neither query ever asks for a customer field. (Staff names are
+      // deliberately public since Phase 18 — the user confirmed it.)
       const [nowServingCall, nextCall] = prisma.queueEntry.findMany.mock.calls;
-      expect(JSON.stringify(nowServingCall[0].select)).not.toMatch(/customer|assignedStaff/i);
-      expect(JSON.stringify(nextCall[0].select)).not.toMatch(/customer|assignedStaff/i);
+      expect(JSON.stringify(nowServingCall[0].select)).not.toMatch(/customer/i);
+      expect(JSON.stringify(nextCall[0].select)).not.toMatch(/customer/i);
     });
 
     it("returns an empty board when no one is called or waiting", async () => {

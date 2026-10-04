@@ -61,6 +61,8 @@ export const joinQueueSchema = z.object({
   customerName: z.string().trim().min(1).max(200),
   customerPhone: z.string().trim().min(1).max(30),
   idempotencyKey: z.string().trim().min(1).max(100).optional(),
+  /** Phase 18: who they'd like to be served by (on shift now); omitted/null = anyone. */
+  preferredStaffId: z.string().uuid().nullable().optional(),
 });
 export type JoinQueueInput = z.infer<typeof joinQueueSchema>;
 
@@ -94,3 +96,9 @@ export const handOverSchema = z.object({
   tenantUserId: z.string().uuid(),
 });
 export type HandOverInput = z.infer<typeof handOverSchema>;
+
+/** Phase 18 — change who a waiting customer wants; null = anyone. */
+export const setPreferenceSchema = z.object({
+  preferredStaffId: z.string().uuid().nullable(),
+});
+export type SetPreferenceInput = z.infer<typeof setPreferenceSchema>;

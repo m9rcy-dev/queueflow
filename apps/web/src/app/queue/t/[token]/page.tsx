@@ -113,8 +113,18 @@ export default function TicketPage() {
         <p className="text-6xl font-semibold text-text-primary">#{entry.ticketNumber}</p>
 
         {entry.status === "WAITING" && (
-          <div className="text-text-secondary">
-            {entry.position !== null && <p>{entry.position - 1} people ahead</p>}
+          <div className="text-center text-text-secondary">
+            {entry.preferredStaffName && (
+              <p className="font-medium text-text-primary">
+                Waiting for {entry.preferredStaffName}
+              </p>
+            )}
+            {entry.position !== null && (
+              <p>
+                {entry.position - 1} {entry.position - 1 === 1 ? "person" : "people"} ahead
+                {entry.preferredStaffName ? ` for ${entry.preferredStaffName}` : ""}
+              </p>
+            )}
             {entry.estimatedWaitMinutes !== null && (
               <p>Estimated wait ~{entry.estimatedWaitMinutes} minutes</p>
             )}

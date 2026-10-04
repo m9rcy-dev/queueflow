@@ -27,6 +27,8 @@ export default function CodeLandingPage() {
   const [serviceId, setServiceId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  // Phase 18: "" = anyone, else a tenantUserId of someone on shift now.
+  const [preferredStaffId, setPreferredStaffId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Generated once per page load and reused across retries — the browser,
@@ -62,6 +64,7 @@ export default function CodeLandingPage() {
         customerName,
         customerPhone,
         idempotencyKey,
+        preferredStaffId: preferredStaffId || null,
       });
       router.push(`/queue/t/${entry.publicToken}`);
     } catch (err) {
@@ -152,6 +155,44 @@ export default function CodeLandingPage() {
                   </span>
                 </label>
               ))}
+            </fieldset>
+          )}
+
+          {resolution.onShiftStaff.length > 0 && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1 text-sm font-medium text-text-primary">
+                Who would you like?
+              </legend>
+              <div className="flex flex-wrap gap-2">
+                {[{ tenantUserId: "", name: "Anyone (quickest)" }, ...resolution.onShiftStaff].map(
+                  (staff) => (
+                    <label
+                      key={staff.tenantUserId || "anyone"}
+                      className={`cursor-pointer rounded-full border px-4 py-2 text-sm ${
+                        preferredStaffId === staff.tenantUserId
+                          ? "border-primary bg-primary/10 font-semibold text-primary"
+                          : "border-border text-text-primary"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="preferredStaff"
+                        className="sr-only"
+                        value={staff.tenantUserId}
+                        checked={preferredStaffId === staff.tenantUserId}
+                        onChange={() => setPreferredStaffId(staff.tenantUserId)}
+                      />
+                      {staff.name}
+                    </label>
+                  ),
+                )}
+              </div>
+              {preferredStaffId && (
+                <p className="text-xs text-text-secondary">
+                  You keep your place in line. If someone else is free first, the next customer goes
+                  ahead and you&apos;re seen when your choice is free.
+                </p>
+              )}
             </fieldset>
           )}
 

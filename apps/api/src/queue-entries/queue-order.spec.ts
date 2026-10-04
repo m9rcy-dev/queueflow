@@ -1,4 +1,10 @@
-import { compareQueueOrder, isPriorityActive, sortByQueueOrder } from "./queue-order";
+import {
+  canServe,
+  compareQueueOrder,
+  competesWith,
+  isPriorityActive,
+  sortByQueueOrder,
+} from "./queue-order";
 
 const NOW = new Date("2026-10-05T10:00:00Z");
 const at = (minutesFromNow: number): Date => new Date(NOW.getTime() + minutesFromNow * 60_000);
@@ -42,5 +48,28 @@ describe("queue order (G-25)", () => {
 
   it("breaks exact joinedAt ties by id", () => {
     expect(compareQueueOrder(entry("b", -5), entry("a", -5), NOW)).toBeGreaterThan(0);
+  });
+});
+
+describe("preferred staff (Phase 18)", () => {
+  const anyone = { preferredStaffId: null };
+  const forAna = { preferredStaffId: "ana" };
+  const forBen = { preferredStaffId: "ben" };
+
+  it("anyone can serve a customer who asked for anyone; only Ana serves one who asked for Ana", () => {
+    expect(canServe(anyone, "ben")).toBe(true);
+    expect(canServe(forAna, "ana")).toBe(true);
+    expect(canServe(forAna, "ben")).toBe(false);
+  });
+
+  it("an 'anyone' customer's line is the other 'anyone' customers", () => {
+    expect(competesWith(anyone, anyone)).toBe(true);
+    expect(competesWith(forAna, anyone)).toBe(false);
+  });
+
+  it("a customer waiting for Ana competes with Ana's and 'anyone' customers, not Ben's", () => {
+    expect(competesWith(forAna, forAna)).toBe(true);
+    expect(competesWith(anyone, forAna)).toBe(true);
+    expect(competesWith(forBen, forAna)).toBe(false);
   });
 });

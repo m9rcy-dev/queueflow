@@ -137,6 +137,8 @@ export interface StaffProfile {
   tenantName: string;
   locationName: string | null;
   appointmentEnabled: boolean;
+  /** Phase 18: the name customers see (an alias, or null to use displayName). */
+  publicName: string | null;
 }
 
 /** Someone who can serve at a location — the hand-over picker (Phase 17). */
@@ -144,4 +146,18 @@ export interface TeamMemberOption {
   tenantUserId: string;
   displayName: string;
   role: TenantRole;
+}
+
+/** The signed-in member's open shift (Phase 18), or null when not clocked in. */
+export interface ShiftSummary {
+  id: string;
+  locationId: string;
+  locationName: string;
+  startedAt: string;
+}
+
+/** A staff member on shift at a location — what customers choose from (their public name only). */
+export interface OnShiftStaff {
+  tenantUserId: string;
+  name: string;
 }

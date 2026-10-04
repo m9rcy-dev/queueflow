@@ -14,6 +14,7 @@ import type {
 import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { tenantLogoPath } from "./tenant-logo.service";
+import { ShiftsService } from "../shifts/shifts.service";
 
 const INVITE_TTL_DAYS = 7;
 
@@ -27,6 +28,7 @@ export class TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly shifts: ShiftsService,
   ) {}
 
   async getTenant(tenantId: string): Promise<TenantSummary> {
@@ -112,6 +114,9 @@ export class TenantsService {
         data: { revokedAt: new Date() },
       }),
     ]);
+    // Off the floor too: their shift ends and any customers waiting for them
+    // go back to "anyone", keeping their place (Phase 18).
+    await this.shifts.endShiftFor(tenantId, member.id);
   }
 
   /**

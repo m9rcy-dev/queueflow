@@ -1,6 +1,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { TenantsService } from "./tenants.service";
+import { ShiftsService } from "../shifts/shifts.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
 
@@ -24,6 +25,7 @@ describe("TenantsService", () => {
         TenantsService,
         { provide: PrismaService, useValue: prisma },
         { provide: MailService, useValue: { sendInviteLink: jest.fn() } },
+        { provide: ShiftsService, useValue: { endShiftFor: jest.fn() } },
       ],
     }).compile();
 

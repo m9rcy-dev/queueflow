@@ -44,6 +44,8 @@ export interface QueueCodeResolution {
   tenant: { name: string; logoPath: string | null };
   location: { id: string; name: string };
   queue: { id: string; name: string; status: "ACTIVE" | "PAUSED" | "CLOSED" };
+  /** Phase 18: staff on shift at this location now — the join form's "who would you like?" choices. */
+  onShiftStaff: Array<{ tenantUserId: string; name: string }>;
   /** BOOK_APPOINTMENT appears only when the tenant has appointments on and this location has at least one bookable service (Phase 13). */
   capabilities: Array<"JOIN_QUEUE" | "BOOK_APPOINTMENT">;
   /** Only services this queue actually accepts right now (active + queueEnabled) — never the full catalog. */
@@ -82,10 +84,15 @@ export interface DisplaySnapshot {
   tenant: { name: string; logoPath: string | null };
   location: { name: string };
   queue: { name: string; status: "ACTIVE" | "PAUSED" | "CLOSED" };
-  /** One entry per currently CALLED/SERVING ticket — more than one when servingCapacity > 1 (multiple chairs/counters). */
-  nowServing: Array<{ ticketNumber: number; serviceName: string }>;
-  /** Up to 12 WAITING ticket numbers, in call order (G-25's order) — numbers only, never names. */
-  next: number[];
+  /**
+   * One entry per currently CALLED/SERVING ticket — more than one when
+   * servingCapacity > 1. `staffName` (Phase 18) is the staff member's public
+   * name: customers know their barber by it (the user confirmed staff names
+   * on the board are fine). Customer names never appear (C-01).
+   */
+  nowServing: Array<{ ticketNumber: number; serviceName: string; staffName: string | null }>;
+  /** Up to 12 WAITING tickets in call order (G-25) — ticket numbers, plus who they're waiting for (Phase 18). */
+  next: Array<{ ticketNumber: number; preferredStaffName: string | null }>;
   /** Everyone waiting, including those beyond the listed `next` tickets. */
   waitingCount: number;
 }

@@ -1,7 +1,19 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import {
   businessSignupSchema,
+  updatePublicNameSchema,
+  type UpdatePublicNameInput,
   trustDeviceSchema,
   type TrustDeviceInput,
   confirmAuthenticatorSchema,
@@ -94,6 +106,15 @@ export class AuthController {
 
   // --- Authenticator app login (Phase 15, ADR-014). Per person, not per
   // business: a staff User's login spans every tenant they belong to. ---
+
+  /** Phase 18 — the name customers see (TV board, join page). */
+  @Patch("me/public-name")
+  updatePublicName(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(updatePublicNameSchema)) body: UpdatePublicNameInput,
+  ) {
+    return this.authService.updatePublicName(user, body.publicName);
+  }
 
   @Get("me/authenticator")
   authenticatorStatus(@CurrentUser() user: RequestUser) {

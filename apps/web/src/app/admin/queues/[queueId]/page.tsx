@@ -6,8 +6,10 @@ import { Badge, Button, Card, Input } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
 import type {
   GuestCardSummary,
+  OnShiftStaff,
   QueueEntryStatus,
   QueueTodayStats,
+  ShiftSummary,
   StaffQueueEntrySummary,
   TeamMemberOption,
 } from "@queueflow/types";
@@ -52,19 +54,28 @@ export default function QueueDashboardPage() {
   const [locationId, setLocationId] = useState<string | null>(null);
   const [queueName, setQueueName] = useState<string | null>(null);
   const [team, setTeam] = useState<TeamMemberOption[]>([]);
+  // Phase 18: my shift, and who's on shift here (the "Wants:" choices).
+  const [shift, setShift] = useState<ShiftSummary | null | undefined>(undefined);
+  const [onShift, setOnShift] = useState<OnShiftStaff[]>([]);
+  const [shiftBusy, setShiftBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const result = await staffApi.listEntries(queueId);
       setEntries(result.filter((entry) => ACTIVE_STATUSES.includes(entry.status)));
+      if (locationId) setOnShift(await staffApi.listOnShift(locationId));
     } catch {
       // A transient poll failure isn't worth interrupting the dashboard for — it'll succeed on the next tick.
     }
-  }, [queueId]);
+  }, [queueId, locationId]);
 
   useEffect(() => {
     if (!session) return;
     staffApi.listJoinableServices(queueId).then(setServices);
+    staffApi
+      .myShift()
+      .then(setShift)
+      .catch(() => setShift(null));
     staffApi.getQueue(queueId).then((queue) => {
       setLocationId(queue.locationId);
       setQueueName(queue.name);
@@ -88,6 +99,11 @@ export default function QueueDashboardPage() {
   }
 
   const waiting = entries.filter((e) => e.status === "WAITING");
+  // Phase 18: Call Next only gives you customers waiting for anyone or for you.
+  const waitingForMe = waiting.filter(
+    (e) => e.preferredStaffId === null || e.preferredStaffId === session.tenantUserId,
+  );
+  const shiftHere = shift && shift.locationId === locationId ? shift : null;
   const inProgress = entries.filter((e) => e.status === "CALLED" || e.status === "SERVING");
   const skipped = entries.filter((e) => e.status === "SKIPPED");
 
@@ -117,6 +133,24 @@ export default function QueueDashboardPage() {
       });
     } finally {
       setCallingNext(false);
+    }
+  }
+
+  async function handleShift(): Promise<void> {
+    setShiftBusy(true);
+    setBanner(null);
+    try {
+      if (shiftHere) {
+        await staffApi.clockOut();
+        setShift(null);
+      } else {
+        setShift(await staffApi.clockIn(locationId ?? undefined));
+      }
+      await refresh();
+    } catch (err) {
+      setBanner({ tone: "error", text: errorMessage(err, "Something went wrong.") });
+    } finally {
+      setShiftBusy(false);
     }
   }
 
@@ -167,11 +201,58 @@ export default function QueueDashboardPage() {
         </div>
       )}
 
-      <div className="flex gap-3">
-        <Button onClick={handleCallNext} disabled={callingNext || waiting.length === 0}>
+      {/* Phase 18 — on shift = customers can ask for you by name. */}
+      {shift !== undefined && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="text-sm">
+            {shiftHere ? (
+              <>
+                <span className="font-semibold text-text-primary">You&apos;re clocked in</span>
+                <span className="text-text-secondary">
+                  {" "}
+                  since{" "}
+                  {new Date(shiftHere.startedAt).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}{" "}
+                  · customers can ask for you
+                </span>
+              </>
+            ) : shift ? (
+              <span className="text-text-secondary">
+                You&apos;re clocked in at {shift.locationName}.
+              </span>
+            ) : (
+              <span className="text-text-secondary">
+                Clock in so customers can choose you when they join.
+              </span>
+            )}
+            {onShift.length > 0 && (
+              <p className="text-xs text-text-secondary">
+                Working now: {onShift.map((s) => s.name).join(", ")}
+              </p>
+            )}
+          </div>
+          <Button
+            variant={shiftHere ? "secondary" : "primary"}
+            disabled={shiftBusy || (shift !== null && !shiftHere)}
+            onClick={handleShift}
+            className="min-h-[40px] px-4 py-2 text-sm"
+          >
+            {shiftHere ? "Clock out" : "Clock in"}
+          </Button>
+        </Card>
+      )}
+
+      <div className="flex flex-wrap gap-3">
+        <Button onClick={handleCallNext} disabled={callingNext || waitingForMe.length === 0}>
           {callingNext
             ? "Calling…"
-            : `Call Next${waiting.length > 0 ? ` (${waiting.length} waiting)` : ""}`}
+            : waiting.length === 0
+              ? "Call Next"
+              : waitingForMe.length === waiting.length
+                ? `Call Next (${waiting.length} waiting)`
+                : `Call Next (${waitingForMe.length} for you · ${waiting.length} waiting)`}
         </Button>
         <Button variant="secondary" onClick={() => setShowWalkInForm((v) => !v)}>
           {showWalkInForm ? "Cancel" : "Add Walk-in"}
@@ -239,6 +320,11 @@ export default function QueueDashboardPage() {
             key={entry.id}
             entry={entry}
             busy={busyEntryId === entry.id}
+            preference={{
+              onShift,
+              onSelect: (preferredStaffId) =>
+                runAction(entry.id, () => staffApi.setPreference(entry.id, preferredStaffId)),
+            }}
             actions={[
               { label: "Skip", onClick: () => staffApi.skipEntry(entry.id) },
               { label: "Cancel", destructive: true, onClick: () => staffApi.cancelEntry(entry.id) },
@@ -418,6 +504,7 @@ function EntryRow({
   actions,
   onAction,
   handOver,
+  preference,
 }: {
   entry: StaffQueueEntrySummary;
   busy: boolean;
@@ -425,6 +512,8 @@ function EntryRow({
   onAction: (action: () => Promise<unknown>) => void;
   /** Phase 17 — only for called/in-progress customers: pass them to whoever is actually serving. */
   handOver?: { team: TeamMemberOption[]; onSelect: (tenantUserId: string) => void };
+  /** Phase 18 — only for waiting customers: who they'd like (null = anyone). */
+  preference?: { onShift: OnShiftStaff[]; onSelect: (tenantUserId: string | null) => void };
 }) {
   // Who's doing the work (Phase 17): the hand-over/Start record wins over who called.
   const servingName = entry.servedByStaffName ?? entry.assignedStaffName;
@@ -446,6 +535,9 @@ function EntryRow({
               {entry.priorityActive ? " · priority" : ""}
             </Badge>
           )}
+          {entry.preferredStaffName && entry.status !== "CALLED" && entry.status !== "SERVING" && (
+            <Badge tone="info">for {entry.preferredStaffName}</Badge>
+          )}
         </div>
         <p className="text-sm text-text-secondary">
           {entry.customerName} · {entry.customerPhone}
@@ -454,6 +546,28 @@ function EntryRow({
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {preference && (preference.onShift.length > 0 || entry.preferredStaffId) && (
+          <label className="flex items-center gap-1.5 text-sm text-text-secondary">
+            <span>Wants</span>
+            <select
+              value={entry.preferredStaffId ?? ""}
+              disabled={busy}
+              onChange={(e) => preference.onSelect(e.target.value || null)}
+              className="min-h-[40px] rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+            >
+              <option value="">Anyone</option>
+              {preference.onShift.map((staff) => (
+                <option key={staff.tenantUserId} value={staff.tenantUserId}>
+                  {staff.name}
+                </option>
+              ))}
+              {entry.preferredStaffId &&
+                !preference.onShift.some((s) => s.tenantUserId === entry.preferredStaffId) && (
+                  <option value={entry.preferredStaffId}>{entry.preferredStaffName}</option>
+                )}
+            </select>
+          </label>
+        )}
         {handOver && handOver.team.length > 1 && (
           <label className="flex items-center gap-1.5 text-sm text-text-secondary">
             <span className="sr-only">Hand over #{entry.ticketNumber} to</span>

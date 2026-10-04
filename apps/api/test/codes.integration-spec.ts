@@ -121,6 +121,7 @@ describe("Codes / QR resolver (integration)", () => {
       capabilities: ["JOIN_QUEUE"],
       services: [{ id: service.body.id, name: "Haircut", durationMinutes: 20 }],
       appointmentServices: [],
+      onShiftStaff: [], // Phase 18 — no one clocked in yet
     });
   });
 

@@ -521,13 +521,12 @@ redesign: up to 12 waiting tickets as large, position-labelled tiles.
 
 ### Phase 18 — Staff on Shift & Preferred Staff
 
-**Status: Not started**
+**Status: Done (2026-10-05)**. See `docs/status/phase-18.md` and ADR-017.
 
-Clock in / clock out; customers may choose "anyone" or a staff member who is working; Call Next
-skips customers waiting for someone else (they keep their place); staff names on the TV board's
-"Now serving" (the user confirmed 2026-10-04: staff names or aliases on the public display are fine,
-since that's how they build their reputation). Reverses G-11 (plain FIFO), so it needs an ADR.
-Open: if the preferred staff member leaves, auto-revert to "anyone"? Preferences for bookings too?
+Clock in and out; customers choose "anyone" or someone on shift; Call Next skips customers waiting
+for someone else, who keep their place; positions count each customer's own line; staff names (or
+aliases) on the TV board. If a staff member clocks out, their customers go back to "anyone", keeping
+their place, and are told. Walk-in queue only: bookings stay pooled.
 
 ### Phase 19 — Staff Earnings
 

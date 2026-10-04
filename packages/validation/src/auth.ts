@@ -83,3 +83,15 @@ export const trustDeviceSchema = z.object({
   locationId: z.string().uuid().optional(),
 });
 export type TrustDeviceInput = z.infer<typeof trustDeviceSchema>;
+
+/** Phase 18 — clock in; owner/admin say where, a location-bound member needn't. */
+export const clockInSchema = z.object({
+  locationId: z.string().uuid().optional(),
+});
+export type ClockInInput = z.infer<typeof clockInSchema>;
+
+/** Phase 18 — the name customers see; null/empty goes back to the display name. */
+export const updatePublicNameSchema = z.object({
+  publicName: z.string().trim().max(60).nullable(),
+});
+export type UpdatePublicNameInput = z.infer<typeof updatePublicNameSchema>;

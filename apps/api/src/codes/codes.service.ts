@@ -5,6 +5,7 @@ import { QueuesService } from "../queues/queues.service";
 import { generateShortPublicCode } from "../common/short-code.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
 import { tenantLogoPath } from "../tenants/tenant-logo.service";
+import { staffPublicName } from "../shifts/staff-name";
 
 /**
  * Which contexts get the short, printed, explicitly-not-secret alphabet
@@ -176,6 +177,16 @@ export class CodesService {
             select: { id: true, name: true, durationMinutes: true },
           })
         : [];
+      // Phase 18: who customers can ask for — staff on shift here now.
+      const shifts = await this.prisma.staffShift.findMany({
+        where: {
+          locationId: code.queue.locationId,
+          endedAt: null,
+          tenantUser: { removedAt: null },
+        },
+        include: { tenantUser: { include: { user: { select: { displayName: true } } } } },
+        orderBy: { startedAt: "asc" },
+      });
       return {
         contextType: "QUEUE",
         tenant: {
@@ -187,6 +198,10 @@ export class CodesService {
         capabilities:
           appointmentServices.length > 0 ? ["JOIN_QUEUE", "BOOK_APPOINTMENT"] : ["JOIN_QUEUE"],
         appointmentServices,
+        onShiftStaff: shifts.map((shift) => ({
+          tenantUserId: shift.tenantUserId,
+          name: staffPublicName(shift.tenantUser),
+        })),
         // Only what a customer can actually join right now — not the whole catalog (plan §13.4).
         services: code.queue.queueServices
           .map((qs) => qs.service)

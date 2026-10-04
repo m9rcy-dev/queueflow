@@ -53,3 +53,30 @@ export function callNextOrderSql(now: Date): Prisma.Sql {
     id ASC
   `;
 }
+
+/**
+ * Preferred staff (Phase 18, ADR-017): may `staffId` take this customer?
+ * Yes if they asked for anyone, or for this person. Call Next adds this
+ * as a WHERE clause; everyone else keeps their place for their person.
+ */
+export function canServe(entry: { preferredStaffId: string | null }, staffId: string): boolean {
+  return entry.preferredStaffId === null || entry.preferredStaffId === staffId;
+}
+
+/**
+ * Is `other` part of the line `entry` is waiting in — i.e. could the next
+ * call that would reach `entry` reach `other` instead? A customer waiting
+ * for anyone competes with everyone else waiting for anyone. A customer
+ * waiting for Ana competes with those waiting for Ana *and* those waiting
+ * for anyone (Ana may take them first). Customers waiting for someone else
+ * are in a different line. This is what positions, wait estimates and
+ * "nearly your turn" notifications count, so a preference doesn't make
+ * the number shown misleading.
+ */
+export function competesWith(
+  other: { preferredStaffId: string | null },
+  entry: { preferredStaffId: string | null },
+): boolean {
+  if (entry.preferredStaffId === null) return other.preferredStaffId === null;
+  return other.preferredStaffId === null || other.preferredStaffId === entry.preferredStaffId;
+}

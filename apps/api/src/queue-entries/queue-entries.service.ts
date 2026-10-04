@@ -29,9 +29,11 @@ import { tenantLogoPath } from "../tenants/tenant-logo.service";
 import {
   callNextOrderSql,
   compareQueueOrder,
+  competesWith,
   isPriorityActive,
   sortByQueueOrder,
 } from "./queue-order";
+import { staffPublicName } from "../shifts/staff-name";
 
 /** Rounded to the nearest minute; null (not 0) for an empty set — "no data yet" must never look like "instant" on the dashboard (Phase 11, G-14). */
 function average(values: number[]): number | null {
@@ -92,9 +94,12 @@ type EntryRow = {
   cancelledAt: Date | null;
   publicToken: string;
   priorityFrom: Date | null;
+  preferredStaffId: string | null;
 };
 
 type StaffEntryRow = EntryRow & {
+  // Phase 18: who the customer asked for (null = anyone).
+  preferredStaff: { id: string; publicName: string | null; user: { displayName: string } } | null;
   // Phase 17: who did the work (Start / hand-over), distinct from who called.
   servedByStaff: { id: string; user: { displayName: string } } | null;
   customer: { firstName: string | null; phoneE164: string } | null;
@@ -174,6 +179,11 @@ export class QueueEntriesService {
       });
     }
 
+    // Phase 18: a preferred staff member must be on shift here right now.
+    if (input.preferredStaffId) {
+      await this.assertOnShift(input.preferredStaffId, queue.locationId);
+    }
+
     const phoneE164 = normalizePhoneToE164(input.customerPhone);
     const customer = await this.prisma.customer.upsert({
       where: { tenantId_phoneE164: { tenantId: queue.tenantId, phoneE164 } },
@@ -233,6 +243,7 @@ export class QueueEntriesService {
           ticketNumber: counter.lastNumber,
           serviceDate,
           idempotencyKey: input.idempotencyKey ?? null,
+          preferredStaffId: input.preferredStaffId ?? null,
         },
       });
       await this.evaluateWaitingThresholds(tx, queueId);
@@ -645,7 +656,10 @@ export class QueueEntriesService {
   async getByPublicToken(publicToken: string): Promise<PublicTicketSummary> {
     const entry = await this.prisma.queueEntry.findUnique({
       where: { publicToken },
-      include: { tenant: { include: { logo: { select: { updatedAt: true } } } } },
+      include: {
+        tenant: { include: { logo: { select: { updatedAt: true } } } },
+        preferredStaff: { include: { user: { select: { displayName: true } } } },
+      },
     });
     if (!entry) {
       throw new NotFoundException({ code: "QUEUE_ENTRY_NOT_FOUND", message: "Ticket not found." });
@@ -659,6 +673,7 @@ export class QueueEntriesService {
         name: entry.tenant.name,
         logoPath: tenantLogoPath(entry.tenantId, entry.tenant.logo),
       },
+      preferredStaffName: entry.preferredStaff ? staffPublicName(entry.preferredStaff) : null,
     };
   }
 
@@ -702,6 +717,7 @@ export class QueueEntriesService {
         queue: { select: { name: true, location: { select: { name: true } } } },
         service: { select: { name: true } },
         servedByStaff: { include: { user: { select: { displayName: true } } } },
+        preferredStaff: { include: { user: { select: { displayName: true } } } },
       },
     });
     return entries.map((entry) => ({
@@ -736,6 +752,7 @@ export class QueueEntriesService {
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
         servedByStaff: { include: { user: { select: { displayName: true } } } },
+        preferredStaff: { include: { user: { select: { displayName: true } } } },
         guestCard: { select: { guestNumber: true } },
         appointment: { select: { startsAt: true } },
       },
@@ -824,6 +841,8 @@ export class QueueEntriesService {
       const rows = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM queue_entries
         WHERE "queueId" = ${queueId} AND status = 'WAITING'
+          -- Phase 18: skip customers waiting for someone else; they keep their place.
+          AND ("preferredStaffId" IS NULL OR "preferredStaffId" = ${staffTenantUserId})
         ORDER BY ${callNextOrderSql(new Date())}
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -849,7 +868,10 @@ export class QueueEntriesService {
     });
 
     if (!updated) {
-      throw new NotFoundException({ code: "QUEUE_EMPTY", message: "No one is waiting." });
+      throw new NotFoundException({
+        code: "QUEUE_EMPTY",
+        message: "No one is waiting for you right now.",
+      });
     }
     this.queueEvents.emitQueueChanged(queueId);
     this.triggerNotificationProcessing();
@@ -876,6 +898,57 @@ export class QueueEntriesService {
       servedByStaffId: entry?.servedByStaffId ?? actorTenantUserId,
     });
     return this.getByIdForTenant(tenantId, entryId);
+  }
+
+  /**
+   * Set or clear who a waiting customer wants (Phase 18) — e.g. they ask at
+   * the counter. Only for someone still waiting; the person must be on
+   * shift at this location. They keep their place either way.
+   */
+  async setPreference(
+    tenantId: string,
+    entryId: string,
+    preferredStaffId: string | null,
+  ): Promise<StaffQueueEntrySummary> {
+    const entry = await this.findOwnedStaffEntry(tenantId, entryId);
+    if (entry.status !== "WAITING" && entry.status !== "SKIPPED") {
+      throw new ConflictException({
+        code: "INVALID_TRANSITION",
+        message: `Only a waiting customer's preference can change — current status is ${entry.status}.`,
+      });
+    }
+    if (preferredStaffId) {
+      const queue = await this.prisma.queue.findUniqueOrThrow({
+        where: { id: entry.queueId },
+        select: { locationId: true },
+      });
+      await this.assertOnShift(preferredStaffId, queue.locationId);
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.queueEntry.update({
+        where: { id: entryId },
+        data: { preferredStaffId, version: { increment: 1 } },
+      });
+      // Their line changed, so their position (and notification state) may have.
+      await this.evaluateWaitingThresholds(tx, entry.queueId);
+    });
+    this.queueEvents.emitQueueChanged(entry.queueId);
+    this.triggerNotificationProcessing();
+    return this.getByIdForTenant(tenantId, entryId);
+  }
+
+  /** A preferred staff member must be on shift at the location now (ADR-017). */
+  private async assertOnShift(tenantUserId: string, locationId: string): Promise<void> {
+    const shift = await this.prisma.staffShift.findFirst({
+      where: { tenantUserId, locationId, endedAt: null, tenantUser: { removedAt: null } },
+      select: { id: true },
+    });
+    if (!shift) {
+      throw new ConflictException({
+        code: "STAFF_NOT_ON_SHIFT",
+        message: "That person isn't working right now. Choose someone else, or anyone.",
+      });
+    }
   }
 
   /**
@@ -1112,8 +1185,12 @@ export class QueueEntriesService {
     }
     const candidates: Candidate[] = [];
 
-    for (let peopleAhead = 0; peopleAhead < waiting.length; peopleAhead += 1) {
-      const entry = waiting[peopleAhead];
+    for (let index = 0; index < waiting.length; index += 1) {
+      const entry = waiting[index];
+      // Phase 18: people ahead *in this customer's own line* (competesWith).
+      const peopleAhead = waiting
+        .slice(0, index)
+        .filter((other) => competesWith(other, entry)).length;
       if (!entry.customer) continue; // no contact details to notify — shouldn't happen via the join flow, but never crash on it
 
       const { channel, recipient } = resolveChannel(entry.customer);
@@ -1276,6 +1353,7 @@ export class QueueEntriesService {
         customer: { select: { firstName: true, phoneE164: true } },
         assignedStaff: { include: { user: { select: { displayName: true } } } },
         servedByStaff: { include: { user: { select: { displayName: true } } } },
+        preferredStaff: { include: { user: { select: { displayName: true } } } },
         guestCard: { select: { guestNumber: true } },
         appointment: { select: { startsAt: true } },
       },
@@ -1324,14 +1402,20 @@ export class QueueEntriesService {
     if (entry.status !== "WAITING") {
       return { position: null, estimatedWaitMinutes: null };
     }
+    // Phase 18: only the customer's own line counts (competesWith) — and
+    // someone waiting for one particular person is served by just them.
     const ahead = allEntries.filter(
       (row) =>
-        row.status === "WAITING" && row.id !== entry.id && compareQueueOrder(row, entry, now) < 0,
+        row.status === "WAITING" &&
+        row.id !== entry.id &&
+        competesWith(row, entry) &&
+        compareQueueOrder(row, entry, now) < 0,
     );
     const totalDuration = ahead.reduce((sum, row) => sum + row.service.durationMinutes, 0);
+    const servers = entry.preferredStaffId ? 1 : Math.max(1, servingCapacity);
     return {
       position: ahead.length + 1,
-      estimatedWaitMinutes: Math.ceil(totalDuration / Math.max(1, servingCapacity)),
+      estimatedWaitMinutes: Math.ceil(totalDuration / servers),
     };
   }
 
@@ -1370,6 +1454,8 @@ export class QueueEntriesService {
       assignedStaffName: entry.assignedStaff?.user.displayName ?? null,
       servedByStaffId: entry.servedByStaff?.id ?? null,
       servedByStaffName: entry.servedByStaff?.user.displayName ?? null,
+      preferredStaffId: entry.preferredStaff?.id ?? null,
+      preferredStaffName: entry.preferredStaff ? staffPublicName(entry.preferredStaff) : null,
       guestCardNumber: entry.guestCard?.guestNumber ?? null,
       appointmentStartsAt: entry.appointment?.startsAt.toISOString() ?? null,
       priorityActive: isPriorityActive(entry, new Date()),

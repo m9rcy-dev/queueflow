@@ -39,6 +39,8 @@ export interface QueueEntrySummary {
 /** The customer's live ticket (public token lookup + its SSE stream) — the entry plus who it's for, so the page can show the business name and logo (Phase 16). */
 export interface PublicTicketSummary extends QueueEntrySummary {
   tenant: { name: string; logoPath: string | null };
+  /** Phase 18: who they're waiting for (null = anyone); their position counts only that line. */
+  preferredStaffName: string | null;
 }
 
 export interface JoinQueueResponse extends QueueEntrySummary {
@@ -60,6 +62,9 @@ export interface StaffQueueEntrySummary extends QueueEntrySummary {
   /** Phase 17: who did the work (pressed Start, or was handed the customer) — distinct from who called. */
   servedByStaffId: string | null;
   servedByStaffName: string | null;
+  /** Phase 18: who the customer wants (null = anyone). */
+  preferredStaffId: string | null;
+  preferredStaffName: string | null;
   /** Set when this entry came from an appointment check-in (Phase 14). */
   appointmentStartsAt: string | null;
   /** True once a checked-in appointment's priority window has opened (G-25) — it sorts ahead of walk-ins. */

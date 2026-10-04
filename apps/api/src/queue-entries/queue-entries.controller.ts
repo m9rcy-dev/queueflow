@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import {
   cancelEntrySchema,
+  setPreferenceSchema,
+  type SetPreferenceInput,
   handOverSchema,
   type HandOverInput,
   joinQueueSchema,
@@ -85,6 +87,17 @@ export class QueueEntriesController {
   async start(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     await this.access.assertQueueEntry(user, id);
     return this.queueEntriesService.start(user.tenantId, id, user.tenantUserId);
+  }
+
+  /** Phase 18 — set or clear who a waiting customer wants (null = anyone). */
+  @Patch("queue-entries/:id/preference")
+  async setPreference(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(setPreferenceSchema)) body: SetPreferenceInput,
+  ) {
+    await this.access.assertQueueEntry(user, id);
+    return this.queueEntriesService.setPreference(user.tenantId, id, body.preferredStaffId);
   }
 
   /** Phase 17 — hand the customer to whoever is actually serving them. */

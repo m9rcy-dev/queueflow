@@ -156,6 +156,12 @@ function NowServing({ entries }: { entries: DisplaySnapshot["nowServing"] }) {
               <span className="block text-[clamp(4rem,9vw,12rem)] font-bold leading-none tabular-nums">
                 #{entry.ticketNumber}
               </span>
+              {/* Phase 18: who has them — staff build their name this way. */}
+              {entry.staffName && (
+                <span className="block text-[clamp(1.5rem,2.6vw,3.25rem)] font-semibold text-emerald-200">
+                  with {entry.staffName}
+                </span>
+              )}
               <span className="text-[clamp(1rem,1.6vw,2rem)] text-white/60">
                 {entry.serviceName}
               </span>
@@ -178,7 +184,7 @@ function ordinal(n: number): string {
  * themselves — especially anyone without notifications — so every ticket
  * is large, labelled with its place, and the very next one stands out.
  */
-function Waiting({ next, waitingCount }: { next: number[]; waitingCount: number }) {
+function Waiting({ next, waitingCount }: { next: DisplaySnapshot["next"]; waitingCount: number }) {
   const [first, ...rest] = next;
   const notShown = waitingCount - next.length;
   return (
@@ -200,13 +206,20 @@ function Waiting({ next, waitingCount }: { next: number[]; waitingCount: number 
             <span className="text-[clamp(1.25rem,2.2vw,2.75rem)] font-semibold uppercase text-sky-200">
               Next
             </span>
-            <span className="text-[clamp(3rem,7vw,9rem)] font-bold leading-none tabular-nums">
-              #{first}
+            <span className="flex flex-col items-end">
+              <span className="text-[clamp(3rem,7vw,9rem)] font-bold leading-none tabular-nums">
+                #{first.ticketNumber}
+              </span>
+              {first.preferredStaffName && (
+                <span className="text-[clamp(1rem,1.8vw,2.25rem)] text-sky-100">
+                  for {first.preferredStaffName}
+                </span>
+              )}
             </span>
           </div>
           {rest.length > 0 && (
             <ol className="grid grid-cols-2 gap-[1.2vh] sm:grid-cols-3 xl:grid-cols-4">
-              {rest.map((ticketNumber, index) => (
+              {rest.map(({ ticketNumber, preferredStaffName }, index) => (
                 <li
                   key={ticketNumber}
                   className="flex flex-col items-start rounded-xl bg-white/10 px-[1.2vw] py-[0.8vh]"
@@ -217,6 +230,12 @@ function Waiting({ next, waitingCount }: { next: number[]; waitingCount: number 
                   <span className="self-center text-[clamp(2rem,4vw,5.5rem)] font-bold leading-tight tabular-nums">
                     #{ticketNumber}
                   </span>
+                  {/* Phase 18: waiting for one person — they keep their place, others may go first. */}
+                  {preferredStaffName && (
+                    <span className="self-center text-[clamp(0.8rem,1.2vw,1.5rem)] text-sky-200">
+                      for {preferredStaffName}
+                    </span>
+                  )}
                 </li>
               ))}
             </ol>

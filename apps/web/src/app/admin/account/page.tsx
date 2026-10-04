@@ -4,6 +4,7 @@ import { useStaffSession } from "../../../lib/use-staff-session";
 import { staffApi } from "../../../lib/staff-api-client";
 import { AppShell } from "../../../components/AppShell";
 import { AuthenticatorSettings } from "../../../components/AuthenticatorSettings";
+import { PublicNameSettings } from "../../../components/PublicNameSettings";
 
 /** The signed-in staff member's own preferences (Phase 15) — per person, so it applies across every business they work for. */
 export default function AccountPage() {
@@ -19,6 +20,7 @@ export default function AccountPage() {
 
   return (
     <AppShell session={session} title={"Your account"}>
+      <PublicNameSettings profile={session} />
       <AuthenticatorSettings api={staffApi} />
     </AppShell>
   );

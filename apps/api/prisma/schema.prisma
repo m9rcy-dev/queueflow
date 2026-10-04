@@ -112,6 +112,11 @@ model TenantUser {
   // delete would null out queue_entries.assignedStaffId. Re-inviting the
   // same person reactivates the row.
   removedAt  DateTime?
+  // Phase 18: the name customers see (TV board, join page, their ticket) —
+  // their own name or an alias, per business; null falls back to the
+  // person's display name. The user confirmed staff names on the public
+  // display are fine: it's how they build their reputation.
+  publicName String?
 
   // Shared counter-tablet PIN switching (D-03a). Hashed with argon2id
   // (never plaintext) despite the PIN's low entropy — it's a long-lived
@@ -129,6 +134,8 @@ model TenantUser {
 
   assignedQueueEntries  QueueEntry[]
   servedQueueEntries    QueueEntry[]  @relation("QueueEntryServedBy")
+  preferredQueueEntries QueueEntry[]  @relation("QueueEntryPreferredStaff")
+  shifts                StaffShift[]
   bookedAppointments    Appointment[] @relation("AppointmentBookedBy")
   cancelledAppointments Appointment[] @relation("AppointmentCancelledBy")
 
@@ -269,6 +276,7 @@ model Location {
   closures      LocationClosure[]
   appointments  Appointment[]
   staff         TenantUser[]
+  shifts        StaffShift[]
   invites       TenantInvite[]
   deviceTrusts  DeviceTrust[]
   services      Service[]
@@ -524,12 +532,17 @@ model QueueEntry {
   // Set at CALLED (G-18) — required for the trusted-device/PIN audit trail
   // (D-03a) once Phase 5 builds the staff device; the field exists now so
   // Phase 5 doesn't need a schema change.
-  assignedStaffId String?
+  assignedStaffId  String?
   // Phase 17 (ADR-016): who actually did the work — set by whoever presses
   // Start, or by a hand-over. Separate from assignedStaffId (who called),
   // because the person calling isn't always the one serving; this is what
   // per-staff reporting and pay (Phase 19) will count.
-  servedByStaffId String?
+  servedByStaffId  String?
+  // Phase 18 (ADR-017): who the customer wants to be served by — null means
+  // anyone. Call Next only gives this entry to that person (or keeps it for
+  // them); it keeps its place in line meanwhile. Cleared automatically when
+  // that person clocks out.
+  preferredStaffId String?
 
   // Opaque, high-entropy (G-39) — the anonymous customer's only way back to
   // their own ticket (G-45). Never a sequential/guessable ID.
@@ -589,18 +602,19 @@ model QueueEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  queue         Queue                @relation(fields: [queueId], references: [id], onDelete: Cascade)
-  service       Service              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  assignedStaff TenantUser?          @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
-  servedByStaff TenantUser?          @relation("QueueEntryServedBy", fields: [servedByStaffId], references: [id], onDelete: SetNull)
-  notifications NotificationOutbox[]
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queue          Queue                @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  service        Service              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customer       Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedStaff  TenantUser?          @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  servedByStaff  TenantUser?          @relation("QueueEntryServedBy", fields: [servedByStaffId], references: [id], onDelete: SetNull)
+  preferredStaff TenantUser?          @relation("QueueEntryPreferredStaff", fields: [preferredStaffId], references: [id], onDelete: SetNull)
+  notifications  NotificationOutbox[]
   // The GUEST_CARD code currently occupied by this entry, if any (Phase 10,
   // D-14) — the FK lives on Code.currentEntryId; this is just the reverse
   // side, informational only (nothing queries through it today).
-  guestCard     Code?                @relation("GuestCardCurrentEntry")
-  appointment   Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  guestCard      Code?                @relation("GuestCardCurrentEntry")
+  appointment    Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, idempotencyKey])
   @@unique([queueId, serviceDate, ticketNumber])
@@ -628,6 +642,9 @@ enum NotificationType {
   APPOINTMENT_CANCELLED
   // Phase 14 (§75) — one per (appointment, reminderOffsetMinutes).
   APPOINTMENT_REMINDER
+  // Phase 18 — the customer's preferred staff member finished their shift;
+  // they're still in line, now with whoever's next free.
+  PREFERRED_STAFF_UNAVAILABLE
 }
 
 enum NotificationChannel {
@@ -919,4 +936,26 @@ model TenantLogo {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("tenant_logos")
+}
+
+// Phase 18 (ADR-017) — one row per stint on the floor. "Who's working" for
+// preferred-staff choices is the members with an open shift (endedAt null)
+// at that location; the rows themselves are the time record Phase 19's
+// hourly pay will add up. At most one open shift per member — enforced by
+// a partial unique index in the migration (Prisma can't express it).
+model StaffShift {
+  id           String    @id @default(uuid())
+  tenantId     String
+  locationId   String
+  tenantUserId String
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+
+  location   Location   @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  tenantUser TenantUser @relation(fields: [tenantUserId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([locationId, endedAt])
+  @@index([tenantUserId, startedAt])
+  @@map("staff_shifts")
 }

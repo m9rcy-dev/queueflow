@@ -6,7 +6,7 @@ import { QueuesService } from "../queues/queues.service";
 
 describe("CodesService", () => {
   let service: CodesService;
-  let prisma: { code: Record<string, jest.Mock> };
+  let prisma: { code: Record<string, jest.Mock>; staffShift: Record<string, jest.Mock> };
   let queuesService: { findOwnedQueue: jest.Mock };
 
   const tenantId = "tenant-1";
@@ -27,6 +27,7 @@ describe("CodesService", () => {
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
+      staffShift: { findMany: jest.fn().mockResolvedValue([]) },
     };
     queuesService = { findOwnedQueue: jest.fn() };
 
@@ -368,6 +369,8 @@ describe("CodesService", () => {
         services: [{ id: "svc-1", name: "Haircut", durationMinutes: 20 }],
         // Appointment capability off for this tenant — nothing bookable offered (Phase 13).
         appointmentServices: [],
+        // No one clocked in (Phase 18) — the join form offers only "anyone".
+        onShiftStaff: [],
       });
     });
   });

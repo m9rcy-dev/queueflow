@@ -24,6 +24,7 @@ import { QueuesModule } from "./queues/queues.module";
 import { RetentionModule } from "./retention/retention.module";
 import { ServicesModule } from "./services/services.module";
 import { TenantsModule } from "./tenants/tenants.module";
+import { ShiftsModule } from "./shifts/shifts.module";
 import { RawImageBodyMiddleware } from "./tenants/raw-image-body.middleware";
 
 @Module({
@@ -57,6 +58,7 @@ import { RawImageBodyMiddleware } from "./tenants/raw-image-body.middleware";
     CustomerAuthModule,
     GuestCardsModule,
     AppointmentsModule,
+    ShiftsModule,
     RetentionModule,
   ],
   providers: [

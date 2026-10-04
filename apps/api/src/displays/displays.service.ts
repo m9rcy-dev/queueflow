@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { DisplaySnapshot } from "@queueflow/types";
 import { PrismaService } from "../prisma/prisma.service";
 import { sortByQueueOrder } from "../queue-entries/queue-order";
+import { staffPublicName } from "../shifts/staff-name";
 import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 /**
@@ -53,13 +54,25 @@ export class DisplaysService {
       this.prisma.queueEntry.findMany({
         where: { queueId, status: { in: ["CALLED", "SERVING"] } },
         orderBy: { calledAt: "asc" },
-        select: { ticketNumber: true, service: { select: { name: true } } },
+        select: {
+          ticketNumber: true,
+          service: { select: { name: true } },
+          // Phase 18: which staff member has them — doing the work, else who called.
+          servedByStaff: { select: { publicName: true, user: { select: { displayName: true } } } },
+          assignedStaff: { select: { publicName: true, user: { select: { displayName: true } } } },
+        },
       }),
       // All WAITING rows, then sorted by the shared queue order (G-25) —
       // the board must show the same "next" Call Next will actually pick.
       this.prisma.queueEntry.findMany({
         where: { queueId, status: "WAITING" },
-        select: { id: true, joinedAt: true, priorityFrom: true, ticketNumber: true },
+        select: {
+          id: true,
+          joinedAt: true,
+          priorityFrom: true,
+          ticketNumber: true,
+          preferredStaff: { select: { publicName: true, user: { select: { displayName: true } } } },
+        },
       }),
     ]);
     const next = sortByQueueOrder(nextRows, new Date()).slice(0, NEXT_UP_LIMIT);
@@ -71,11 +84,18 @@ export class DisplaysService {
       },
       location: { name: queue.location.name },
       queue: { name: queue.name, status: queue.status },
-      nowServing: nowServingRows.map((row) => ({
+      nowServing: nowServingRows.map((row) => {
+        const staff = row.servedByStaff ?? row.assignedStaff;
+        return {
+          ticketNumber: row.ticketNumber,
+          serviceName: row.service.name,
+          staffName: staff ? staffPublicName(staff) : null,
+        };
+      }),
+      next: next.map((row) => ({
         ticketNumber: row.ticketNumber,
-        serviceName: row.service.name,
+        preferredStaffName: row.preferredStaff ? staffPublicName(row.preferredStaff) : null,
       })),
-      next: next.map((row) => row.ticketNumber),
       waitingCount: nextRows.length,
     };
   }

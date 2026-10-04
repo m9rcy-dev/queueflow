@@ -600,7 +600,17 @@ export class AuthService {
       tenantName: membership.tenant.name,
       locationName: membership.location?.name ?? null,
       appointmentEnabled: membership.tenant.appointmentEnabled,
+      publicName: membership.publicName,
     };
+  }
+
+  /** Phase 18 — the name customers see for this member at this business (blank = their display name). */
+  async updatePublicName(user: RequestUser, publicName: string | null): Promise<StaffProfile> {
+    await this.prisma.tenantUser.update({
+      where: { id: user.tenantUserId },
+      data: { publicName: publicName?.trim() || null },
+    });
+    return this.getProfile(user);
   }
 
   /** Authenticator setup step 1 for the logged-in staff member — the app shows "QueueFlow" with their email beneath (ADR-014). */

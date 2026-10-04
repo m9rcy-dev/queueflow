@@ -80,6 +80,14 @@ export function buildAppointmentReminderMessage(params: {
   return `${params.businessName}: reminder of your ${params.serviceName} appointment, ${params.when}. When you arrive, check in here: ${params.manageUrl}`;
 }
 
+export function buildPreferredStaffUnavailableMessage(params: {
+  businessName: string;
+  staffName: string;
+  ticketNumber: number;
+}): string {
+  return `${params.businessName}: ${params.staffName} has finished for now. You're still in line (ticket #${params.ticketNumber}) and will be seen by the next available person.`;
+}
+
 const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   APPROACHING: "You're approaching in line",
   NEARLY_NEXT: "You're almost up!",
@@ -88,6 +96,7 @@ const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   APPOINTMENT_BOOKED: "Your appointment is booked",
   APPOINTMENT_CANCELLED: "Your appointment has been cancelled",
   APPOINTMENT_REMINDER: "Reminder: your upcoming appointment",
+  PREFERRED_STAFF_UNAVAILABLE: "A change to your place in line",
 };
 
 /** Only meaningful for the EMAIL channel — SMS has no subject line. */

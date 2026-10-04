@@ -20,6 +20,8 @@ import type {
   QueueSummary,
   QueueTodayStats,
   ServiceSummary,
+  ShiftSummary,
+  OnShiftStaff,
   StaffProfile,
   StaffQueueEntrySummary,
   TeamMemberOption,
@@ -314,6 +316,43 @@ export class StaffApiClient {
       method: "POST",
       body: { tenantUserId },
     });
+  }
+
+  /** Phase 18 — the signed-in member's open shift, or null. */
+  async myShift(): Promise<ShiftSummary | null> {
+    const res = await this.request<{ shift: ShiftSummary | null }>("/tenants/me/shifts/me");
+    return res.shift;
+  }
+
+  /** Phase 18 — clock in (owner/admin pass which location; bound members needn't). */
+  clockIn(locationId?: string): Promise<ShiftSummary> {
+    return this.request("/tenants/me/shifts/clock-in", {
+      method: "POST",
+      body: locationId ? { locationId } : {},
+    });
+  }
+
+  /** Phase 18 — clock out; customers waiting for you go back to "anyone", keeping their place. */
+  clockOut(): Promise<void> {
+    return this.request("/tenants/me/shifts/clock-out", { method: "POST" });
+  }
+
+  /** Phase 18 — who's on shift at a location (preference picker). */
+  listOnShift(locationId: string): Promise<OnShiftStaff[]> {
+    return this.request(`/tenants/me/locations/${locationId}/on-shift`);
+  }
+
+  /** Phase 18 — set or clear (null = anyone) who a waiting customer wants. */
+  setPreference(entryId: string, preferredStaffId: string | null): Promise<StaffQueueEntrySummary> {
+    return this.request(`/tenants/me/queue-entries/${entryId}/preference`, {
+      method: "PATCH",
+      body: { preferredStaffId },
+    });
+  }
+
+  /** Phase 18 — the name customers see (TV board, join page); null = your display name. */
+  updatePublicName(publicName: string | null): Promise<StaffProfile> {
+    return this.request("/auth/me/public-name", { method: "PATCH", body: { publicName } });
   }
 
   removeLogo(): Promise<void> {
