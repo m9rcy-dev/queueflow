@@ -146,13 +146,21 @@ function BusinessList({ token, onSignOut }: { token: string; onSignOut: () => vo
             </p>
           )}
         </div>
-        <div className="w-full sm:w-72">
-          <Input
-            label="Search"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Business, owner or email"
-          />
+        <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
+          <Link
+            href="/platform/onboard"
+            className="inline-flex min-h-[48px] items-center rounded-md bg-primary px-4 font-medium text-white hover:bg-primary-hover"
+          >
+            + Onboard a business
+          </Link>
+          <div className="w-full sm:w-64">
+            <Input
+              label="Search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Business, owner or email"
+            />
+          </div>
         </div>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}

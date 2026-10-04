@@ -49,8 +49,27 @@ export class EmailProviderMailService extends MailService {
     });
   }
 
+  async sendOwnerWelcome(email: string, ownerName: string, tenantName: string): Promise<void> {
+    await this.emailProvider.send({
+      to: email,
+      subject: `${tenantName} is ready on QueueFlow`,
+      body: [
+        `Hi ${ownerName},`,
+        "",
+        `"${tenantName}" has been set up on QueueFlow, with you as the owner.`,
+        `Sign in with this email address at ${this.webUrl("/admin/login")} — we'll email you a login code.`,
+        "",
+        "Then follow the Get started steps: add your location, your services and a queue, and print your QR poster.",
+      ].join("\n"),
+    });
+  }
+
   private inviteUrl(inviteToken: string): string {
+    return this.webUrl(`/invite/${inviteToken}`);
+  }
+
+  private webUrl(path: string): string {
     const base = this.config.get<string>("WEB_APP_URL") ?? "http://localhost:3000";
-    return `${base.replace(/\/$/, "")}/invite/${inviteToken}`;
+    return `${base.replace(/\/$/, "")}${path}`;
   }
 }

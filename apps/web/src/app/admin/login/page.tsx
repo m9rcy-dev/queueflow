@@ -211,7 +211,7 @@ function StaffPicker({
         onClick={onUseEmailInstead}
         className="text-sm text-text-secondary underline"
       >
-        Sign in with email instead
+        Someone else, or another business? Sign in with email
       </button>
     </Card>
   );

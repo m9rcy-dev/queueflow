@@ -1,4 +1,5 @@
 import type {
+  PlatformOnboardResponse,
   PlatformLoginResponse,
   PlatformTenantDetail,
   PlatformTenantSummary,
@@ -16,6 +17,16 @@ export interface PlatformApiClient {
   verify(email: string, code: string): Promise<PlatformLoginResponse>;
   listTenants(token: string): Promise<PlatformTenantSummary[]>;
   getTenant(token: string, tenantId: string): Promise<PlatformTenantDetail>;
+  /** Phase 19 — create a business and email its owner a welcome. */
+  onboard(
+    token: string,
+    input: {
+      businessName: string;
+      ownerName: string;
+      ownerEmail: string;
+      appointmentsEnabled: boolean;
+    },
+  ): Promise<PlatformOnboardResponse>;
 }
 
 export function createPlatformApiClient(baseUrl: string): PlatformApiClient {
@@ -49,5 +60,7 @@ export function createPlatformApiClient(baseUrl: string): PlatformApiClient {
     listTenants: (token) => request("/platform/tenants", { token }),
     getTenant: (token, tenantId) =>
       request(`/platform/tenants/${encodeURIComponent(tenantId)}`, { token }),
+    onboard: (token, input) =>
+      request("/platform/tenants", { method: "POST", body: JSON.stringify(input), token }),
   };
 }

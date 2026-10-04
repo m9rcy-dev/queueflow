@@ -59,6 +59,18 @@ My defaults, easy to change:
 - Web: `/platform` (sign in, then a searchable business list) and `/platform/tenants/[id]`
   (capabilities, locations, services, team, 30-day activity).
 
+**Onboarding from the platform** (added after the first commit, at the user's request):
+
+- `POST /platform/tenants` and a `/platform/onboard` form, with Appointments on or off;
+- a welcome email to the owner;
+- an existing account can be made owner of another business;
+- duplicate business names for the same owner are refused;
+- `tenants.onboardedByEmail`, added by migration `20261005110000_add_tenant_onboarded_by`.
+
+New owners get a **Get started** checklist on the Queues page (location, services, queue, QR
+poster, logo) until every step is done. On a trusted tablet, the staff login's email link now
+reads "Someone else, or another business? Sign in with email".
+
 ## Tests
 
 - **Unit, 298:** the allow-list matching (case, spacing, no substring matches), the SMTP provider

@@ -378,4 +378,96 @@ describe("Hours report & platform admin (integration)", () => {
       process.env.PLATFORM_ADMIN_EMAILS = before;
     }
   });
+  it("a platform admin onboards a business; its new owner signs in and lands in it", async () => {
+    const login = await platformLogin("root@queueflow.test");
+    const auth = bearer(login.body.accessToken);
+    counter += 1;
+    const ownerEmail = `onboarded-${counter}@example.com`;
+
+    const created = await request(server())
+      .post("/platform/tenants")
+      .set(auth)
+      .send({
+        businessName: `Fresh Cuts ${counter}`,
+        ownerName: "Fran",
+        ownerEmail: ownerEmail.toUpperCase(), // stored lower-case
+        appointmentsEnabled: true,
+      })
+      .expect(201);
+    expect(created.body.ownerHadAccount).toBe(false);
+    expect(created.body.tenant).toMatchObject({
+      name: `Fresh Cuts ${counter}`,
+      ownerEmail,
+      capabilities: { queue: true, appointments: true },
+      locationCount: 0,
+      onboardedByEmail: "root@queueflow.test",
+    });
+
+    // The owner signs in with the normal staff login and gets straight in.
+    await request(server()).post("/auth/login/request").send({ email: ownerEmail }).expect(202);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } });
+    const code = await prisma.loginCode.findFirstOrThrow({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+    });
+    const session = await request(server())
+      .post("/auth/login/verify")
+      .send({ email: ownerEmail, code: recoverCodeFromHash(code.codeHash) })
+      .expect(201);
+    expect(session.body.tenant.id).toBe(created.body.tenant.id);
+    const me = await request(server())
+      .get("/auth/me")
+      .set(bearer(session.body.accessToken))
+      .expect(200);
+    expect(me.body).toMatchObject({ role: "TENANT_OWNER", appointmentEnabled: true });
+  });
+
+  it("an existing account can own a second business (chosen at sign-in); duplicates and outsiders are refused", async () => {
+    const owner = await signUpOwner();
+    const ownerEmail = `hours-owner-${counter}@example.com`;
+    const auth = bearer((await platformLogin("root@queueflow.test")).body.accessToken);
+
+    const second = await request(server())
+      .post("/platform/tenants")
+      .set(auth)
+      .send({ businessName: "Second Shop", ownerName: "Owner", ownerEmail })
+      .expect(201);
+    expect(second.body.ownerHadAccount).toBe(true);
+    expect(second.body.tenant.capabilities.appointments).toBe(false);
+
+    const again = await request(server())
+      .post("/platform/tenants")
+      .set(auth)
+      .send({ businessName: "second shop", ownerName: "Owner", ownerEmail })
+      .expect(409);
+    expect(again.body.code).toBe("BUSINESS_ALREADY_EXISTS");
+
+    // Signing in now asks which business.
+    await request(server()).post("/auth/login/request").send({ email: ownerEmail }).expect(202);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } });
+    const code = await prisma.loginCode.findFirstOrThrow({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+    });
+    const verify = await request(server())
+      .post("/auth/login/verify")
+      .send({ email: ownerEmail, code: recoverCodeFromHash(code.codeHash) })
+      .expect(201);
+    expect(verify.body.requiresTenantSelection).toBe(true);
+    expect(verify.body.tenants.map((t: { tenantName: string }) => t.tenantName)).toContain(
+      "Second Shop",
+    );
+
+    // Neither a business owner nor an anonymous caller can onboard.
+    await request(server())
+      .post("/platform/tenants")
+      .set(owner.auth)
+      .send({ businessName: "Sneaky", ownerName: "X", ownerEmail: "x@example.com" })
+      .expect(401);
+    await request(server())
+      .post("/platform/tenants")
+      .send({ businessName: "Sneaky", ownerName: "X", ownerEmail: "x@example.com" })
+      .expect(401);
+    expect(await prisma.tenant.count({ where: { name: "Sneaky" } })).toBe(0);
+  });
 });

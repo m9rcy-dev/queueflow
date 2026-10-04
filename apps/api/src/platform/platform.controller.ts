@@ -11,7 +11,9 @@ import {
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import {
+  platformOnboardSchema,
   requestLoginCodeSchema,
+  type PlatformOnboardInput,
   verifyLoginCodeSchema,
   type RequestLoginCodeInput,
   type VerifyLoginCodeInput,
@@ -61,6 +63,16 @@ export class PlatformController {
   @Get("tenants")
   listTenants() {
     return this.platform.listTenants();
+  }
+
+  /** Phase 19 — onboard a business; its owner gets a welcome email and sets the rest up. */
+  @UseGuards(PlatformAdminGuard)
+  @Post("tenants")
+  onboard(
+    @Req() request: PlatformRequest,
+    @Body(new ZodValidationPipe(platformOnboardSchema)) body: PlatformOnboardInput,
+  ) {
+    return this.platform.onboard(body, request.platformAdmin!.email);
   }
 
   @UseGuards(PlatformAdminGuard)

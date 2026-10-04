@@ -48,6 +48,10 @@ model Tenant {
   queueEnabled       Boolean @default(true)
   appointmentEnabled Boolean @default(false)
 
+  // Phase 19 (ADR-018): which platform admin set this business up, when it
+  // was onboarded from /platform rather than self-signed-up via the API.
+  onboardedByEmail String?
+
   // Appointment slot grid (Phase 13, G-22/ADR-012) — tenant-wide, per plan
   // §70's "Appointments" settings. Slot starts step by the interval from
   // each open period's opening time; the buffer is turnaround occupied

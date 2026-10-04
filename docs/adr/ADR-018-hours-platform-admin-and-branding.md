@@ -58,6 +58,23 @@ not a role in any business.
 
   It never shows customer names or phones, or queue contents.
 
+**Onboarding a business from the platform** (added the same day, at the user's request). Until
+now, a business could only be created through the sign-up API.
+
+- `POST /platform/tenants` takes the business name, the owner's name and email, and whether
+  Appointments is on. Queue is always on.
+- The owner gets a welcome email with the sign-in link. Everything else (locations, services,
+  queues, hours, logo) they set up themselves, guided by a **Get started** checklist on the Queues
+  page, which disappears once every step is done.
+- **An existing account is reused.** Public sign-up refuses existing emails, so it doesn't reveal
+  who has an account. Here a platform admin is trusted, and one person may own several
+  businesses; they choose which one at sign-in.
+- **Duplicates are refused:** the same owner can't get a second business with the same name
+  (ignoring case).
+- Each business records who onboarded it (`onboardedByEmail`). A business created through
+  self sign-up shows "signed up themselves".
+- A failed welcome email doesn't undo the business. The owner can still sign in with their email.
+
 **Co-branding.** QueueFlow's mark is a QR finder pattern as the bowl of a Q, with a line of dots
 as the tail (`public/queueflow-mark.svg`, which also produces the app icons). The business leads
 and QueueFlow is always visible:

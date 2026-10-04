@@ -9,6 +9,7 @@ import { staffApi } from "../../../lib/staff-api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
 import { AppShell } from "../../../components/AppShell";
 import { isBusinessAdmin } from "../../../lib/roles";
+import { GetStarted } from "../../../components/GetStarted";
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -40,6 +41,7 @@ export default function QueuesPage() {
 
   return (
     <AppShell session={session} title={"Queues"}>
+      <GetStarted session={session} />
       <div className="flex flex-col gap-3">
         {queues.length === 0 && (
           <p className="text-sm text-text-secondary">No queues yet — create your first one.</p>

@@ -29,6 +29,14 @@ export interface PlatformTenantSummary {
   /** Queue tickets in the last 30 days — a rough "is anyone using it" signal. */
   ticketsLast30Days: number;
   appointmentsLast30Days: number;
+  /** The platform admin who onboarded it, or null for a self sign-up (the API route). */
+  onboardedByEmail: string | null;
+}
+
+/** POST /platform/tenants — the new business, and whether its owner already had an account. */
+export interface PlatformOnboardResponse {
+  tenant: PlatformTenantSummary;
+  ownerHadAccount: boolean;
 }
 
 export interface PlatformTenantDetail extends PlatformTenantSummary {

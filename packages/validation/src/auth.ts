@@ -120,3 +120,16 @@ export const updateShiftSchema = z
     message: "The end must be after the start.",
   });
 export type UpdateShiftInput = z.infer<typeof updateShiftSchema>;
+
+/**
+ * Phase 19 — a platform admin onboards a business (ADR-018). The owner gets
+ * a welcome email and finishes setting it up themselves. An existing account
+ * may be made owner of another business (they choose at sign-in).
+ */
+export const platformOnboardSchema = z.object({
+  businessName: z.string().trim().min(2).max(200),
+  ownerName: z.string().trim().min(1).max(200),
+  ownerEmail: z.string().trim().toLowerCase().email(),
+  appointmentsEnabled: z.boolean().default(false),
+});
+export type PlatformOnboardInput = z.infer<typeof platformOnboardSchema>;

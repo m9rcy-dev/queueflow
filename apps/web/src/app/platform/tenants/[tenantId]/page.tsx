@@ -68,6 +68,9 @@ export default function PlatformTenantPage() {
                   {tenant.ownerName}
                   {tenant.ownerEmail ? ` · ${tenant.ownerEmail}` : ""} · joined{" "}
                   {new Date(tenant.createdAt).toLocaleDateString()}
+                  {tenant.onboardedByEmail
+                    ? ` · onboarded by ${tenant.onboardedByEmail}`
+                    : " · signed up themselves"}
                 </p>
               </div>
             </div>

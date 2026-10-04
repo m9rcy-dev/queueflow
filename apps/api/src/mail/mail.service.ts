@@ -10,4 +10,6 @@ export abstract class MailService {
   abstract sendInviteLink(email: string, tenantName: string, inviteToken: string): Promise<void>;
   /** Sent when the invitee actually requests a code from the accept page. */
   abstract sendInviteCode(email: string, code: string, tenantName: string): Promise<void>;
+  /** Phase 19 — a platform admin set up a business for this owner: where to sign in and finish setting up. */
+  abstract sendOwnerWelcome(email: string, ownerName: string, tenantName: string): Promise<void>;
 }

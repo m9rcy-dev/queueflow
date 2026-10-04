@@ -1,6 +1,12 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import type { PlatformTenantDetail, PlatformTenantSummary } from "@queueflow/types";
+import type {
+  PlatformOnboardResponse,
+  PlatformTenantDetail,
+  PlatformTenantSummary,
+} from "@queueflow/types";
+import type { PlatformOnboardInput } from "@queueflow/validation";
+import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
@@ -24,7 +30,71 @@ type TenantWithSummary = Prisma.TenantGetPayload<{ include: typeof SUMMARY_INCLU
  */
 @Injectable()
 export class PlatformService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PlatformService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mail: MailService,
+  ) {}
+
+  /**
+   * Onboard a business (Phase 19, ADR-018): the business, its owner (an
+   * existing account is reused — one person may own several businesses and
+   * picks one at sign-in), the chosen capabilities, and a welcome email.
+   * Everything else — locations, services, queues, hours, logo — the owner
+   * sets up themselves.
+   */
+  async onboard(input: PlatformOnboardInput, adminEmail: string): Promise<PlatformOnboardResponse> {
+    const existingUser = await this.prisma.user.findUnique({ where: { email: input.ownerEmail } });
+    if (existingUser) {
+      const sameName = await this.prisma.tenantUser.findFirst({
+        where: {
+          userId: existingUser.id,
+          role: "TENANT_OWNER",
+          removedAt: null,
+          tenant: { name: { equals: input.businessName, mode: "insensitive" } },
+        },
+      });
+      if (sameName) {
+        throw new ConflictException({
+          code: "BUSINESS_ALREADY_EXISTS",
+          message: `${input.ownerEmail} already owns a business called "${input.businessName}".`,
+        });
+      }
+    }
+
+    const tenantId = await this.prisma.$transaction(async (tx) => {
+      const user =
+        existingUser ??
+        (await tx.user.create({ data: { email: input.ownerEmail, displayName: input.ownerName } }));
+      const tenant = await tx.tenant.create({
+        data: {
+          name: input.businessName,
+          ownerName: input.ownerName,
+          appointmentEnabled: input.appointmentsEnabled,
+          onboardedByEmail: adminEmail,
+        },
+      });
+      await tx.tenantUser.create({
+        data: { tenantId: tenant.id, userId: user.id, role: "TENANT_OWNER" },
+      });
+      return tenant.id;
+    });
+
+    // The business exists either way; a failed email is reported, not rolled back —
+    // the owner can still sign in at /admin/login with their email.
+    try {
+      await this.mail.sendOwnerWelcome(input.ownerEmail, input.ownerName, input.businessName);
+    } catch (err) {
+      this.logger.error(`Welcome email to the new owner of ${tenantId} failed`, err);
+    }
+
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      include: SUMMARY_INCLUDE,
+    });
+    return { tenant: toSummary(tenant, 0, 0), ownerHadAccount: existingUser !== null };
+  }
 
   async listTenants(): Promise<PlatformTenantSummary[]> {
     const since = new Date(Date.now() - 30 * DAY_MS);
@@ -122,5 +192,6 @@ function toSummary(
     memberCount: tenant.memberships.length,
     ticketsLast30Days,
     appointmentsLast30Days,
+    onboardedByEmail: tenant.onboardedByEmail,
   };
 }
