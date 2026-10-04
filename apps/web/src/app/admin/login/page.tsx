@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Input, OtpCodeInput } from "@queueflow/ui";
-import { ApiError } from "@queueflow/api-client";
+import { ApiError, type StaffSession } from "@queueflow/api-client";
 import type { DeviceContextResponse, MembershipSummary } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
@@ -11,6 +11,7 @@ import { QueueFlowLogo } from "../../../components/QueueFlowLogo";
 
 type Step =
   | { name: "loading" }
+  | { name: "already-signed-in"; session: StaffSession }
   | { name: "device-staff-picker"; context: DeviceContextResponse }
   | { name: "pin-entry"; context: DeviceContextResponse; tenantUserId: string; name_: string }
   | { name: "otp-email" }
@@ -35,9 +36,11 @@ export default function StaffLoginPage() {
 
   useEffect(() => {
     (async () => {
+      // Phase 19: don't silently drop a signed-in visitor into their business —
+      // they may have come here to sign in as someone else, or to another business.
       const restored = await staffApi.restoreSession().catch(() => null);
       if (restored) {
-        router.push("/admin/queues");
+        setStep({ name: "already-signed-in", session: restored });
         return;
       }
       const context = await staffApi.tryRestoreDeviceContext().catch(() => null);
@@ -62,6 +65,31 @@ export default function StaffLoginPage() {
         <QueueFlowLogo size="lg" />
         <h1 className="text-center text-base font-medium text-text-secondary">Staff sign in</h1>
       </div>
+
+      {step.name === "already-signed-in" && (
+        <Card className="flex flex-col gap-4">
+          <div>
+            <p className="text-sm text-text-secondary">You&apos;re signed in as</p>
+            <p className="text-lg font-medium text-text-primary">{step.session.displayName}</p>
+            <p className="text-sm text-text-secondary">
+              {step.session.email} · {step.session.tenantName}
+            </p>
+          </div>
+          <Button onClick={() => router.push("/admin/queues")}>
+            Continue to {step.session.tenantName}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              await staffApi.logout();
+              const context = await staffApi.tryRestoreDeviceContext().catch(() => null);
+              setStep(context ? { name: "device-staff-picker", context } : { name: "otp-email" });
+            }}
+          >
+            Sign in as someone else
+          </Button>
+        </Card>
+      )}
 
       {step.name === "device-staff-picker" && (
         <StaffPicker

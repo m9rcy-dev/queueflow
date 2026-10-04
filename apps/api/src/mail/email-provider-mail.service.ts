@@ -69,7 +69,7 @@ export class EmailProviderMailService extends MailService {
   }
 
   private webUrl(path: string): string {
-    const base = this.config.get<string>("WEB_APP_URL") ?? "http://localhost:3000";
+    const base = this.config.get<string>("WEB_APP_URL") ?? "http://localhost:4000";
     return `${base.replace(/\/$/, "")}${path}`;
   }
 }
