@@ -15,12 +15,16 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { Roles } from "../auth/roles.decorator";
 import type { RequestUser } from "../auth/request-user.interface";
 import { QueuesService } from "./queues.service";
+import { LocationAccessService } from "../access/location-access.service";
 
 const listQuerySchema = z.object({ locationId: z.string().uuid().optional() });
 
 @Controller("tenants/me/queues")
 export class QueuesController {
-  constructor(private readonly queuesService: QueuesService) {}
+  constructor(
+    private readonly queuesService: QueuesService,
+    private readonly access: LocationAccessService,
+  ) {}
 
   @Post()
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
@@ -36,11 +40,12 @@ export class QueuesController {
     @CurrentUser() user: RequestUser,
     @Query(new ZodValidationPipe(listQuerySchema)) query: { locationId?: string },
   ) {
-    return this.queuesService.list(user.tenantId, query.locationId);
+    return this.queuesService.list(user.tenantId, this.access.listLocation(user, query.locationId));
   }
 
   @Get(":id")
-  get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+  async get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    await this.access.assertQueue(user, id);
     return this.queuesService.get(user.tenantId, id);
   }
 
@@ -56,11 +61,12 @@ export class QueuesController {
 
   @Patch(":id/status")
   @Roles("TENANT_OWNER", "TENANT_ADMIN", "MANAGER", "STAFF")
-  updateStatus(
+  async updateStatus(
     @CurrentUser() user: RequestUser,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateQueueStatusSchema)) body: UpdateQueueStatusInput,
   ) {
+    await this.access.assertQueue(user, id);
     return this.queuesService.updateStatus(user.tenantId, id, body);
   }
 
@@ -76,13 +82,15 @@ export class QueuesController {
   }
 
   @Get(":id/services")
-  listServices(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+  async listServices(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    await this.access.assertQueue(user, id);
     return this.queuesService.listServiceIds(user.tenantId, id);
   }
 
   /** For the staff walk-in form's service picker — same joinable-now filter as the public QR landing page. */
   @Get(":id/joinable-services")
-  listJoinableServices(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+  async listJoinableServices(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    await this.access.assertQueue(user, id);
     return this.queuesService.listJoinableServices(user.tenantId, id);
   }
 }

@@ -114,7 +114,7 @@ describe("Customer accounts & portal (integration)", () => {
       .expect(200);
     expect(resolved.body).toEqual({
       contextType: "GENERAL",
-      tenant: { id: owner.tenant.id, name: "G's Shop" },
+      tenant: { id: owner.tenant.id, name: "G's Shop", logoPath: null },
       capabilities: ["CREATE_ACCOUNT"],
     });
   });

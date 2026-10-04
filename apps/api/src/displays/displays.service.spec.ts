@@ -91,7 +91,7 @@ describe("DisplaysService", () => {
       const result = await service.getSnapshot("queue-1");
 
       expect(result).toEqual({
-        tenant: { name: "Joe's Barbers" },
+        tenant: { name: "Joe's Barbers", logoPath: null },
         location: { name: "Christchurch" },
         queue: { name: "Main Queue", status: "ACTIVE" },
         nowServing: [

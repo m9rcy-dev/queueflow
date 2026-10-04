@@ -1,3 +1,4 @@
+import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import { EmailProviderMailService } from "./email-provider-mail.service";
 import { EmailProvider } from "../notifications/email-provider";
@@ -9,7 +10,11 @@ describe("EmailProviderMailService", () => {
   beforeEach(async () => {
     emailProvider = { send: jest.fn() };
     const module = await Test.createTestingModule({
-      providers: [EmailProviderMailService, { provide: EmailProvider, useValue: emailProvider }],
+      providers: [
+        EmailProviderMailService,
+        { provide: EmailProvider, useValue: emailProvider },
+        { provide: ConfigService, useValue: { get: () => "https://q.example" } },
+      ],
     }).compile();
     service = module.get(EmailProviderMailService);
   });
@@ -23,12 +28,12 @@ describe("EmailProviderMailService", () => {
     });
   });
 
-  it("sendInviteLink sends the invite token through EmailProvider", async () => {
+  it("sendInviteLink sends a link to the invite-acceptance page (Phase 16)", async () => {
     await service.sendInviteLink("joe@example.com", "Joe's Barbers", "invite-token-abc");
     expect(emailProvider.send).toHaveBeenCalledWith({
       to: "joe@example.com",
       subject: expect.stringContaining("Joe's Barbers"),
-      body: expect.stringContaining("invite-token-abc"),
+      body: expect.stringContaining("https://q.example/invite/invite-token-abc"),
     });
   });
 

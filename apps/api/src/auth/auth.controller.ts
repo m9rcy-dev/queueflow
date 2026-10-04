@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from
 import { Throttle } from "@nestjs/throttler";
 import {
   businessSignupSchema,
+  trustDeviceSchema,
+  type TrustDeviceInput,
   confirmAuthenticatorSchema,
   type ConfirmAuthenticatorInput,
   deviceContextSchema,
@@ -117,8 +119,11 @@ export class AuthController {
 
   /** "Trust this device" (D-03a) — an already-logged-in staff member opts a shared counter tablet into PIN switching. */
   @Post("devices/trust")
-  trustDevice(@CurrentUser() user: RequestUser) {
-    return this.authService.trustDevice(user.tenantId);
+  trustDevice(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(trustDeviceSchema)) body: TrustDeviceInput,
+  ) {
+    return this.authService.trustDevice(user, body.locationId);
   }
 
   /** Presented with a trusted device's token, returns who can PIN-switch in on it (D-03a). Public — no session exists yet at this point. */
@@ -147,6 +152,13 @@ export class AuthController {
     await this.authService.setPin(user.tenantUserId, body.pin);
   }
 
+  /** Phase 16 — what the invite-acceptance page shows. */
+  @Public()
+  @Get("invites/:token")
+  inviteDetails(@Param("token") token: string) {
+    return this.authService.getInviteDetails(token);
+  }
+
   @Public()
   @Post("invites/:token/request")
   @HttpCode(HttpStatus.ACCEPTED)
@@ -161,6 +173,6 @@ export class AuthController {
     @Param("token") token: string,
     @Body(new ZodValidationPipe(verifyInviteSchema)) body: VerifyInviteInput,
   ) {
-    return this.authService.acceptInvite(token, body.code);
+    return this.authService.acceptInvite(token, body.code, body.displayName);
   }
 }

@@ -136,7 +136,7 @@ describe("CustomersService", () => {
 
       expect(result).toEqual({
         customer: { id: "cust-1", firstName: "Alice", phoneE164: "+64211234567", email: null },
-        tenant: { id: tenantId, name: "Joe's Barbers" },
+        tenant: { id: tenantId, name: "Joe's Barbers", logoPath: null },
         identityCode: "ABCD1234",
       });
     });

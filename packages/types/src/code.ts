@@ -40,7 +40,8 @@ export interface GuestCardSummary {
 /** What a customer's phone sees immediately after scanning/opening a QUEUE code — deliberately minimal (plan §9's landing page). */
 export interface QueueCodeResolution {
   contextType: "QUEUE";
-  tenant: { name: string };
+  /** logoPath: Phase 16 business logo (API-relative), or null. */
+  tenant: { name: string; logoPath: string | null };
   location: { id: string; name: string };
   queue: { id: string; name: string; status: "ACTIVE" | "PAUSED" | "CLOSED" };
   /** BOOK_APPOINTMENT appears only when the tenant has appointments on and this location has at least one bookable service (Phase 13). */
@@ -54,7 +55,7 @@ export interface QueueCodeResolution {
 /** What a customer sees after scanning a GENERAL "sign up here" poster (Phase 9, D-10) — just enough to reach the signup/login form. */
 export interface GeneralCodeResolution {
   contextType: "GENERAL";
-  tenant: { id: string; name: string };
+  tenant: { id: string; name: string; logoPath: string | null };
   capabilities: ["CREATE_ACCOUNT"];
 }
 
@@ -78,7 +79,7 @@ export type CodeResolution = QueueCodeResolution | GeneralCodeResolution;
  * as the customer ticket page (G-27).
  */
 export interface DisplaySnapshot {
-  tenant: { name: string };
+  tenant: { name: string; logoPath: string | null };
   location: { name: string };
   queue: { name: string; status: "ACTIVE" | "PAUSED" | "CLOSED" };
   /** One entry per currently CALLED/SERVING ticket — more than one when servingCapacity > 1 (multiple chairs/counters). */

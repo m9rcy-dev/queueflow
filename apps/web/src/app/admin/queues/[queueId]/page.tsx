@@ -112,10 +112,11 @@ export default function QueueDashboardPage() {
   async function handleTrustDevice(): Promise<void> {
     setDeviceTrusting(true);
     try {
-      await staffApi.trustDevice();
+      // Phase 16: the tablet belongs to this queue's location.
+      await staffApi.trustDevice(locationId ?? undefined);
       setBanner({
         tone: "info",
-        text: "This device is now trusted for quick staff PIN switching.",
+        text: "This device is now trusted for quick staff PIN switching at this location.",
       });
     } catch (err) {
       setBanner({ tone: "error", text: errorMessage(err, "Couldn't trust this device.") });
@@ -155,7 +156,7 @@ export default function QueueDashboardPage() {
             </button>
           </div>
         </div>
-        <AdminNav current="queues" />
+        <AdminNav current="queues" role={session.role} />
       </header>
 
       <TodayStatsBar queueId={queueId} />

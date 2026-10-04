@@ -18,6 +18,8 @@ export interface TenantSummary {
   ownerName: string;
   queueEnabled: boolean;
   appointmentEnabled: boolean;
+  /** Phase 16: path to the business logo on the API (prefix the API base URL), or null if none uploaded. */
+  logoPath: string | null;
 }
 
 export interface MembershipSummary {
@@ -56,17 +58,29 @@ export interface InviteSummary {
   id: string;
   email: string;
   role: TenantRole;
+  /** Phase 16: set for MANAGER/STAFF invites — the location they'll work at. */
+  location: { id: string; name: string } | null;
   expiresAt: string;
   acceptedAt: string | null;
   revokedAt: string | null;
 }
 
-/** The tenant's current staff roster (Phase 11) — read-only here; role changes and removal aren't built (not a resolved requirement), only invite/revoke-the-invite. */
+/** What the invite-acceptance page shows before asking for the emailed code (Phase 16). */
+export interface InviteDetails {
+  tenantName: string;
+  email: string;
+  role: TenantRole;
+  locationName: string | null;
+}
+
+/** The tenant's current staff roster — removed members excluded. Role/location edits and removal arrived in Phase 16. */
 export interface TenantMemberSummary {
   tenantUserId: string;
   displayName: string;
   email: string;
   role: TenantRole;
+  /** MANAGER/STAFF only (ADR-015); null = every location (owner/admin), or a bound member not yet assigned. */
+  location: { id: string; name: string } | null;
 }
 
 /**
@@ -91,6 +105,8 @@ export interface DeviceContextResponse {
   /** Rotated on every call (ADR-004's rotation pattern) — always persist this one, not the token that was sent. */
   deviceTrustToken: string;
   tenant: { id: string; name: string };
+  /** The location this tablet belongs to (Phase 16); null only for tablets trusted before then. */
+  location: { id: string; name: string } | null;
   staff: DeviceStaffOption[];
 }
 

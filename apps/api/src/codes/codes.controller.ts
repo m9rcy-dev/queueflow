@@ -7,23 +7,29 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { Roles } from "../auth/roles.decorator";
 import type { RequestUser } from "../auth/request-user.interface";
 import { CodesService } from "./codes.service";
+import { LocationAccessService } from "../access/location-access.service";
 
 @Controller("tenants/me/queues/:queueId/codes")
 export class QueueCodesController {
-  constructor(private readonly codesService: CodesService) {}
+  constructor(
+    private readonly codesService: CodesService,
+    private readonly access: LocationAccessService,
+  ) {}
 
   @Post()
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
-  create(
+  async create(
     @CurrentUser() user: RequestUser,
     @Param("queueId") queueId: string,
     @Body(new ZodValidationPipe(createCodeSchema)) body: CreateCodeInput,
   ) {
+    await this.access.assertQueue(user, queueId);
     return this.codesService.createForQueue(user.tenantId, queueId, body.contextType);
   }
 
   @Get()
-  list(@CurrentUser() user: RequestUser, @Param("queueId") queueId: string) {
+  async list(@CurrentUser() user: RequestUser, @Param("queueId") queueId: string) {
+    await this.access.assertQueue(user, queueId);
     return this.codesService.listForQueue(user.tenantId, queueId);
   }
 
@@ -35,6 +41,7 @@ export class QueueCodesController {
     @Param("queueId") queueId: string,
     @Param("codeId") codeId: string,
   ): Promise<void> {
+    await this.access.assertQueue(user, queueId);
     await this.codesService.deactivate(user.tenantId, queueId, codeId);
   }
 }

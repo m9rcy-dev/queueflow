@@ -36,6 +36,11 @@ export interface QueueEntrySummary {
 }
 
 /** Returned once at join time, and from the public token-lookup route — the customer's only way back to their ticket (G-45). */
+/** The customer's live ticket (public token lookup + its SSE stream) — the entry plus who it's for, so the page can show the business name and logo (Phase 16). */
+export interface PublicTicketSummary extends QueueEntrySummary {
+  tenant: { name: string; logoPath: string | null };
+}
+
 export interface JoinQueueResponse extends QueueEntrySummary {
   publicToken: string;
 }

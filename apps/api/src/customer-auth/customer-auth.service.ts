@@ -6,6 +6,7 @@ import { TokenService } from "../auth/token.service";
 import { EmailProvider } from "../notifications/email-provider";
 import { CustomersService } from "../customers/customers.service";
 import { AuthenticatorService } from "../authenticator/authenticator.service";
+import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 const MAX_VERIFY_ATTEMPTS = 5;
 
@@ -187,7 +188,10 @@ export class CustomerAuthService {
     phoneE164: string;
     email: string | null;
   }): Promise<CustomerAuthResponse> {
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: customer.tenantId } });
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: customer.tenantId },
+      include: { logo: { select: { updatedAt: true } } },
+    });
 
     const accessToken = this.tokenService.generateCustomerAccessToken({
       sub: customer.id,
@@ -212,7 +216,11 @@ export class CustomerAuthService {
         phoneE164: customer.phoneE164,
         email: customer.email,
       },
-      tenant: { id: tenant.id, name: tenant.name },
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        logoPath: tenantLogoPath(tenant.id, tenant.logo),
+      },
     };
   }
 }

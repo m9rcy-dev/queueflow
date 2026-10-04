@@ -105,6 +105,16 @@ describe("Auth + tenant isolation (integration)", () => {
     };
   }
 
+  /** Phase 16: Staff invites and counter tablets need a location (ADR-015); a fresh one, just for that. */
+  async function createLocation(accessToken: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ name: "Main", timezone: "Pacific/Auckland" })
+      .expect(201);
+    return res.body.id as string;
+  }
+
   it("rejects every route except explicitly public ones without a token", async () => {
     await request(app.getHttpServer()).get("/auth/me").expect(401);
     await request(app.getHttpServer()).get("/tenants/me").expect(401);
@@ -154,7 +164,11 @@ describe("Auth + tenant isolation (integration)", () => {
     const inviteRes = await request(app.getHttpServer())
       .post("/tenants/me/invites")
       .set("Authorization", `Bearer ${tenantA.accessToken}`)
-      .send({ email: "staff-a@example.com", role: "STAFF" })
+      .send({
+        email: "staff-a@example.com",
+        role: "STAFF",
+        locationId: await createLocation(tenantA.accessToken),
+      })
       .expect(201);
     const tenantAInviteId = inviteRes.body.id;
 
@@ -185,7 +199,11 @@ describe("Auth + tenant isolation (integration)", () => {
     const inviteRes = await request(app.getHttpServer())
       .post("/tenants/me/invites")
       .set("Authorization", `Bearer ${owner.accessToken}`)
-      .send({ email: "new-staff@example.com", role: "STAFF" })
+      .send({
+        email: "new-staff@example.com",
+        role: "STAFF",
+        locationId: await createLocation(owner.accessToken),
+      })
       .expect(201);
 
     const inviteRow = await prisma.tenantInvite.findUniqueOrThrow({
@@ -235,6 +253,8 @@ describe("Auth + tenant isolation (integration)", () => {
         .send({ pin: "4242" })
         .expect(204);
 
+      await createLocation(owner.accessToken); // a tablet belongs to a location (Phase 16)
+
       const trustRes = await request(app.getHttpServer())
         .post("/auth/devices/trust")
         .set("Authorization", `Bearer ${owner.accessToken}`)
@@ -278,6 +298,7 @@ describe("Auth + tenant isolation (integration)", () => {
         .set("Authorization", `Bearer ${owner.accessToken}`)
         .send({ pin: "1111" })
         .expect(204);
+      await createLocation(owner.accessToken); // a tablet belongs to a location (Phase 16)
       const trustRes = await request(app.getHttpServer())
         .post("/auth/devices/trust")
         .set("Authorization", `Bearer ${owner.accessToken}`)
@@ -314,6 +335,7 @@ describe("Auth + tenant isolation (integration)", () => {
         .expect(204);
 
       // Device trusted for Tenant A...
+      await createLocation(ownerA.accessToken); // a tablet belongs to a location (Phase 16)
       const trustRes = await request(app.getHttpServer())
         .post("/auth/devices/trust")
         .set("Authorization", `Bearer ${ownerA.accessToken}`)

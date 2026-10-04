@@ -1,8 +1,8 @@
 # Project Status
 
 Last Updated: 2026-10-04
-Current Phase: Phase 15 — Authenticator App Login, done (see `docs/roadmap.md` — 0–15 all done)
-Current Task: None scheduled — candidates below in Next Task
+Current Phase: Phase 16 — Team & Branding, done (see `docs/roadmap.md`)
+Current Task: Phase 17 — First Deploy (not started)
 
 ## Completed
 
@@ -145,13 +145,18 @@ Current Task: None scheduled — candidates below in Next Task
 
 - Optional authenticator-app login for staff and customers, emailed code always available; encrypted secret, replay protection, separate lockout; one auto-submitting code box everywhere. Detail: [`docs/status/phase-15.md`](docs/status/phase-15.md), ADR-014. 279 unit + 112 integration.
 
+### Phase 16 — Team & Branding
+
+- Managers/Staff allocated to one location with per-request server enforcement (route sweep test), tablets per location, invite-acceptance page, member edit/soft-remove, business logo on customer pages. Detail: [`docs/status/phase-16.md`](docs/status/phase-16.md), ADR-015. 290 unit + 119 integration.
+
 ## Decisions Made
 
-See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); authenticator-app login as an optional primary method with email fallback (Phase 15, ADR-014); check-in and walk-in priority (Phase 14, ADR-013 — 10-min window per business, early check-ins wait in FIFO, same-day no-show restore); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
+See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during implementation: appointment engine shape (Phase 13, ADR-012 — pool of N, fixed grid, closures, no waitlist); authenticator-app login as an optional primary method with email fallback (Phase 15, ADR-014); staff allocated to one location, tablets per location, logos in Postgres (Phase 16, ADR-015); check-in and walk-in priority (Phase 14, ADR-013 — 10-min window per business, early check-ins wait in FIFO, same-day no-show restore); `RefreshToken` scoped by `tenantId` (Phase 1); no separate `Staff` entity (Phase 2); `Customer` entity introduced in Phase 3 rather than Phase 9, since G-34's cap enforcement needed it immediately.
 
 ## Known Issues
 
-- **`AUTHENTICATOR_ENCRYPTION_KEY` must be set before any production deploy** (Phase 15) — the API refuses to boot in production without it. No web screen for accepting staff invites exists (API only), so the new code box isn't used there yet.
+- **CORS still allows any origin** (`main.ts`) — must be locked to the web app's origin before deploying; scheduled in Phase 17. Location detail page edit forms show to managers/staff (API refuses the save) and the login screen's "remember this device" can't pick a location for multi-location owners (Phase 16 — see `docs/status/phase-16.md`).
+- **`AUTHENTICATOR_ENCRYPTION_KEY` must be set before any production deploy** (Phase 15) — the API refuses to boot in production without it.
 - Appointment link check-in doesn't prove physical presence; walk-in "nearly your turn" notifications catch up on the next queue change when a priority window opens, not on the minute (Phase 14 — see `docs/status/phase-14.md`).
 - Appointment booking page day chips start from the browser's today, not the location's; public booking has no per-phone throttle or future-booking cap (Phase 13 — see `docs/status/phase-13.md`).
 - `PROJECT_STATUS.md` itself is ~80KB despite AGENTS.md §8's cap — Phases 0–12's entries are long inline essays. Moving them into `docs/status/phase-NN.md` files (as Phase 13 does) is a worthwhile cleanup, not done here to keep this phase's diff focused.
@@ -166,7 +171,6 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 - The staff dashboard polls every 3s rather than using SSE — deliberate for MVP simplicity (EventSource can't attach an Authorization header, and a query-string token is a security smell not worth taking on this phase); fine at current staff-tablet counts, worth revisiting if multi-tablet live sync becomes a real complaint.
 - No display-picker UI — a business owner points the TV's browser at the specific `/display/{code}` URL directly (bookmarked once). Fine for one screen per location (D-10); would need a picker if a business ever wants several distinct boards.
 - Notification processing is fire-and-forget in-process, not a real background worker/queue — correct for MVP scale (ADR-008 describes "a background worker sends it," which this satisfies in spirit: never blocks the request), but a genuinely down/slow provider only gets retried on the _next_ queue mutation to the same entry, not on a timer. Revisit once Phase 8's real provider makes actual failures a real possibility, not just a simulated test.
-- Staff roster (Phase 11, `GET /tenants/me/staff`) is read-only — changing an existing member's role or removing them isn't built (never a resolved requirement in `plan-review.md`); only invite + revoke-the-invite.
 - The business-hours editor (Phase 11) supports exactly one open period per day — the common case, and full-replace semantics mean it can't represent (or safely preserve) a day a business already configured with two split periods via the raw API. That business would need to keep editing hours via the API, not the UI, until a future pass adds multi-period support.
 - Web Push (ADR-010's SMS-cost-offset idea for installed, signed-up customers) is not built — Phase 11 shipped PWA installability (manifest + a minimal same-origin-only service worker) but not actual push delivery, which needs VAPID keys, a subscription-storage endpoint, and wiring `NotificationsService` to a push-send library. Real, separate work; the phase's stated acceptance criterion only required installability.
 - **`pnpm audit` residual risk (Phase 12)**: Next.js 14.2.x has several moderate/high findings with no feature-flag off-switch (they're in React Server Components' core request handling, which every page uses) — patched only in the 15.5.x line. Not upgraded this phase: Next 14→15 is a major-version bump with a real breaking-change surface (React 19 requirement among them) that needs its own dedicated session, not a drive-by bump during a hardening pass. The one _critical_, concretely reachable finding (the `/_next/image` optimizer route, live by default despite the app never using `next/image`) **is** fixed — blocked outright in `middleware.ts`. Revisit the full upgrade before a real pilot if any of the remaining advisories turn out to have a reachable exploit path here (none currently does, per the triage in `docs/roadmap.md`'s Phase 12 writeup).
@@ -175,9 +179,9 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Next Task
 
-None scheduled. Candidates, roughly in order of what stands between this and a real pilot business:
-
-- **Real SMS** (G-29) — anonymous walk-ins get no real notifications until it exists.
-- **Consent text + versioning** (G-48) — needed before real customer data flows through.
-- **Invite-acceptance screen** — small; would also use the shared code box.
-- Merge the stacked branches (Phases 13 → 14 → 15) into `main`, in order.
+**Phase 17 — First Deploy** (`docs/roadmap.md`): lock CORS to the web origin; `render.yaml` for the
+API (build, `prisma migrate deploy`, start, health check); Vercel settings for the monorepo web app;
+`docs/runbooks/deploy.md` (accounts, every env var incl. `AUTHENTICATOR_ENCRYPTION_KEY` and
+`WEB_APP_URL`, Pingram sender verification, DNS for `q.m9rcy.dev`, smoke test). The user creates the
+hosting accounts and enters secrets themselves. After that: real SMS (G-29) and consent text (G-48)
+before a real pilot. Merge the stacked branches (13 → 14 → 15 → 16) into `main` in order.

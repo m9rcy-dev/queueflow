@@ -81,6 +81,7 @@ model Tenant {
   deviceTrusts  DeviceTrust[]
   notifications NotificationOutbox[]
   appointments  Appointment[]
+  logo          TenantLogo?
 
   @@map("tenants")
 }
@@ -102,6 +103,16 @@ model TenantUser {
   role      TenantRole
   createdAt DateTime   @default(now())
 
+  // Phase 16 (ADR-015): MANAGER/STAFF work at exactly one location and
+  // can only see/operate that one; TENANT_OWNER/TENANT_ADMIN have null
+  // (every location). Enforced by LocationAccessService on each request.
+  locationId String?
+  // Soft removal: a removed member can't sign in, but past queue actions
+  // they performed keep their attribution (D-03a's audit trail) — a hard
+  // delete would null out queue_entries.assignedStaffId. Re-inviting the
+  // same person reactivates the row.
+  removedAt  DateTime?
+
   // Shared counter-tablet PIN switching (D-03a). Hashed with argon2id
   // (never plaintext) despite the PIN's low entropy — it's a long-lived
   // secret, unlike the short-TTL OTP codes above, so it gets the same
@@ -112,8 +123,9 @@ model TenantUser {
   pinFailedAttempts Int       @default(0)
   pinLockedUntil    DateTime?
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
 
   assignedQueueEntries  QueueEntry[]
   bookedAppointments    Appointment[] @relation("AppointmentBookedBy")
@@ -133,13 +145,19 @@ model TenantUser {
 model DeviceTrust {
   id         String    @id @default(uuid())
   tenantId   String
+  // Phase 16 (ADR-015): a counter tablet belongs to one location — only
+  // that location's staff (plus owner/admins) can PIN in on it. Null only
+  // on tablets trusted before Phase 16, which stay business-wide until
+  // they're trusted again.
+  locationId String?
   tokenHash  String    @unique
   expiresAt  DateTime
   revokedAt  DateTime?
   lastUsedAt DateTime  @default(now())
   createdAt  DateTime  @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("device_trusts")
@@ -154,6 +172,9 @@ model TenantInvite {
   tenantId      String
   email         String
   role          TenantRole
+  // Phase 16: required for MANAGER/STAFF invites, null otherwise — copied
+  // onto the membership when the invite is accepted.
+  locationId    String?
   token         String     @unique
   expiresAt     DateTime
   acceptedAt    DateTime?
@@ -163,7 +184,8 @@ model TenantInvite {
   codeAttempts  Int        @default(0)
   createdAt     DateTime   @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([email])
@@ -245,6 +267,9 @@ model Location {
   businessHours BusinessHours[]
   closures      LocationClosure[]
   appointments  Appointment[]
+  staff         TenantUser[]
+  invites       TenantInvite[]
+  deviceTrusts  DeviceTrust[]
   services      Service[]
   queues        Queue[]
   // GUEST_CARD codes only (Phase 10, D-14) — the location's physical card pool.
@@ -868,4 +893,23 @@ model AuthenticatorCredential {
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("authenticator_credentials")
+}
+
+// Phase 16 (ADR-015) — the business's logo, shown on customer-facing pages.
+// Its own table so the image bytes are never loaded by the many queries
+// that read Tenant. Stored in Postgres (not disk — the free hosting tier's
+// disk is wiped on restart; not object storage — no extra account for one
+// small image per business). Capped at 500 KB, PNG/JPEG/WebP only (no SVG:
+// it can carry script), checked by magic bytes, not the declared type.
+model TenantLogo {
+  tenantId  String   @id
+  data      Bytes
+  mimeType  String
+  // Part of the public URL (?v=), so browsers can cache it forever and a
+  // new upload is a new URL.
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_logos")
 }

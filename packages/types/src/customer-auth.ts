@@ -16,6 +16,8 @@ export interface CustomerAuthenticatedUser {
 export interface CustomerTenantSummary {
   id: string;
   name: string;
+  /** Phase 16: path to the business logo on the API (prefix the API base URL), or null if none uploaded. */
+  logoPath: string | null;
 }
 
 export interface CustomerAuthTokens {

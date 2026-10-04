@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { DisplaySnapshot } from "@queueflow/types";
 import { PrismaService } from "../prisma/prisma.service";
 import { sortByQueueOrder } from "../queue-entries/queue-order";
+import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 const NEXT_UP_LIMIT = 5;
 
@@ -40,7 +41,7 @@ export class DisplaysService {
   async getSnapshot(queueId: string): Promise<DisplaySnapshot> {
     const queue = await this.prisma.queue.findUniqueOrThrow({
       where: { id: queueId },
-      include: { location: true, tenant: true },
+      include: { location: true, tenant: { include: { logo: { select: { updatedAt: true } } } } },
     });
 
     const [nowServingRows, nextRows] = await Promise.all([
@@ -59,7 +60,10 @@ export class DisplaysService {
     const next = sortByQueueOrder(nextRows, new Date()).slice(0, NEXT_UP_LIMIT);
 
     return {
-      tenant: { name: queue.tenant.name },
+      tenant: {
+        name: queue.tenant.name,
+        logoPath: tenantLogoPath(queue.tenantId, queue.tenant.logo),
+      },
       location: { name: queue.location.name },
       queue: { name: queue.name, status: queue.status },
       nowServing: nowServingRows.map((row) => ({

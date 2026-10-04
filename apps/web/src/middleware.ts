@@ -28,7 +28,7 @@ export function middleware(request: NextRequest) {
     script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""};
     style-src 'self' ${isDev ? "'unsafe-inline'" : `'nonce-${nonce}'`};
     connect-src 'self' ${API_ORIGIN};
-    img-src 'self' data:;
+    img-src 'self' data: ${API_ORIGIN};
     font-src 'self';
     worker-src 'self';
     object-src 'none';

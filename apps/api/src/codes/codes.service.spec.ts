@@ -309,7 +309,7 @@ describe("CodesService", () => {
 
       expect(result).toEqual({
         contextType: "GENERAL",
-        tenant: { id: "tenant-1", name: "Joe's Barbers" },
+        tenant: { id: "tenant-1", name: "Joe's Barbers", logoPath: null },
         capabilities: ["CREATE_ACCOUNT"],
       });
     });
@@ -360,7 +360,7 @@ describe("CodesService", () => {
 
       expect(result).toEqual({
         contextType: "QUEUE",
-        tenant: { name: "Joe's Barbers" },
+        tenant: { name: "Joe's Barbers", logoPath: null },
         location: { id: "loc-1", name: "Christchurch" },
         queue: { id: "queue-1", name: "Main Queue", status: "ACTIVE" },
         capabilities: ["JOIN_QUEUE"],

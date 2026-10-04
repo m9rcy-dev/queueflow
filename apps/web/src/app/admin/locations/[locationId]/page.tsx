@@ -160,7 +160,7 @@ export default function LocationDetailPage() {
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
       <header className="pt-4">
         <h1 className="mb-4 text-xl font-semibold text-text-primary">{location.name}</h1>
-        <AdminNav current="locations" />
+        <AdminNav current="locations" role={session.role} />
       </header>
 
       <Card className="flex flex-col gap-4">

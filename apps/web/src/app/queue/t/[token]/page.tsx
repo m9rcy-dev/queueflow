@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Badge, Button, Card, type BadgeTone } from "@queueflow/ui";
-import type { QueueEntrySummary } from "@queueflow/types";
+import type { PublicTicketSummary, QueueEntrySummary } from "@queueflow/types";
 import { publicApi } from "../../../../lib/api-client";
 import { TicketQrCode } from "../../../../components/TicketQrCode";
+import { BusinessLogo } from "../../../../components/BusinessLogo";
 
 const STATUS_COPY: Record<QueueEntrySummary["status"], { title: string; tone: BadgeTone }> = {
   WAITING: { title: "Waiting", tone: "info" },
@@ -26,7 +27,7 @@ export default function TicketPage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
 
-  const [entry, setEntry] = useState<QueueEntrySummary | null>(null);
+  const [entry, setEntry] = useState<PublicTicketSummary | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -39,7 +40,7 @@ export default function TicketPage() {
       try {
         const data: unknown = JSON.parse(event.data);
         if (data && typeof data === "object" && "status" in data) {
-          setEntry(data as QueueEntrySummary);
+          setEntry(data as PublicTicketSummary);
         }
         // Anything else (the heartbeat ping) is deliberately ignored.
       } catch {
@@ -69,7 +70,8 @@ export default function TicketPage() {
     setCancelling(true);
     try {
       const updated = await publicApi.cancelTicket(token);
-      setEntry(updated);
+      // The cancel response is the bare entry — keep the business header from before.
+      setEntry((prev) => (prev ? { ...prev, ...updated } : prev));
     } finally {
       setCancelling(false);
     }
@@ -99,6 +101,12 @@ export default function TicketPage() {
           Reconnecting…
         </p>
       )}
+
+      {/* Phase 16 — whose queue this is: the business's name and logo. */}
+      <div className="flex flex-col items-center gap-2">
+        <BusinessLogo logoPath={entry.tenant.logoPath} name={entry.tenant.name} />
+        <p className="text-lg font-medium text-text-primary">{entry.tenant.name}</p>
+      </div>
 
       <Card className="flex w-full flex-col items-center gap-4">
         <Badge tone={statusInfo.tone}>{statusInfo.title}</Badge>

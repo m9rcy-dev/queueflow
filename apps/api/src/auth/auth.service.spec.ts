@@ -17,6 +17,8 @@ describe("AuthService", () => {
     refreshToken: Record<string, jest.Mock>;
     tenantInvite: Record<string, jest.Mock>;
     deviceTrust: Record<string, jest.Mock>;
+    location: Record<string, jest.Mock>;
+    tenantLogo: Record<string, jest.Mock>;
     $transaction: jest.Mock;
   };
   let tokenService: Record<string, jest.Mock>;
@@ -63,6 +65,8 @@ describe("AuthService", () => {
       },
       tenantInvite: { findUnique: jest.fn(), update: jest.fn() },
       deviceTrust: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+      location: { findMany: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn() },
+      tenantLogo: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(),
     };
     tokenService = {
@@ -416,18 +420,35 @@ describe("AuthService", () => {
     });
   });
 
-  describe("trustDevice (D-03a)", () => {
-    it("creates a DeviceTrust row scoped to the tenant and returns the plaintext token", async () => {
-      const result = await service.trustDevice(tenant.id);
+  describe("trustDevice (D-03a; location-bound since Phase 16)", () => {
+    it("binds the tablet to a location-bound member's own location and returns the plaintext token", async () => {
+      const result = await service.trustDevice({ tenantId: tenant.id, locationId: "loc-1" });
 
       expect(prisma.deviceTrust.create).toHaveBeenCalledWith({
         data: {
           tenantId: tenant.id,
+          locationId: "loc-1",
           tokenHash: "hashed-device-trust",
           expiresAt: expect.any(Date),
         },
       });
       expect(result.deviceTrustToken).toBe("opaque-device-trust-token");
+    });
+
+    it("uses the business's only location for an owner who names none", async () => {
+      prisma.location.findMany.mockResolvedValue([{ id: "only-loc" }]);
+      await service.trustDevice({ tenantId: tenant.id, locationId: null });
+      expect(prisma.deviceTrust.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ locationId: "only-loc" }) }),
+      );
+    });
+
+    it("asks a multi-location owner to choose (LOCATION_REQUIRED)", async () => {
+      prisma.location.findMany.mockResolvedValue([{ id: "a" }, { id: "b" }]);
+      await expect(
+        service.trustDevice({ tenantId: tenant.id, locationId: null }),
+      ).rejects.toMatchObject({ response: { code: "LOCATION_REQUIRED" } });
+      expect(prisma.deviceTrust.create).not.toHaveBeenCalled();
     });
   });
 

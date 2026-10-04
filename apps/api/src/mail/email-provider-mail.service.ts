@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { EmailProvider } from "../notifications/email-provider";
 import { MailService } from "./mail.service";
 
@@ -16,7 +17,10 @@ import { MailService } from "./mail.service";
  */
 @Injectable()
 export class EmailProviderMailService extends MailService {
-  constructor(private readonly emailProvider: EmailProvider) {
+  constructor(
+    private readonly emailProvider: EmailProvider,
+    private readonly config: ConfigService,
+  ) {
     super();
   }
 
@@ -32,7 +36,8 @@ export class EmailProviderMailService extends MailService {
     await this.emailProvider.send({
       to: email,
       subject: `You're invited to join ${tenantName} on QueueFlow`,
-      body: `You've been invited to join "${tenantName}" on QueueFlow. Use invite code ${inviteToken} to accept — you'll be asked to verify your email next.`,
+      // Phase 16: a link to the acceptance page, not a bare code to paste somewhere.
+      body: `You've been invited to join "${tenantName}" on QueueFlow. Accept here: ${this.inviteUrl(inviteToken)} — you'll be asked to verify your email next.`,
     });
   }
 
@@ -42,5 +47,10 @@ export class EmailProviderMailService extends MailService {
       subject: `Your invite code for ${tenantName}`,
       body: `Your invite code for "${tenantName}" is ${code}. It expires in 10 minutes.`,
     });
+  }
+
+  private inviteUrl(inviteToken: string): string {
+    const base = this.config.get<string>("WEB_APP_URL") ?? "http://localhost:3000";
+    return `${base.replace(/\/$/, "")}/invite/${inviteToken}`;
   }
 }

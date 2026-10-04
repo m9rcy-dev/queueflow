@@ -7,6 +7,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { GeneralCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { customerApi } from "../../../lib/customer-api-client";
+import { BusinessLogo } from "../../../components/BusinessLogo";
 
 type Step =
   | { name: "loading" }
@@ -68,6 +69,7 @@ export default function CustomerSignupLandingPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 bg-bg p-6">
       <div className="pt-8 text-center">
+        {tenant && <BusinessLogo logoPath={tenant.logoPath} name={tenant.name} />}
         <h1 className="text-2xl font-semibold text-text-primary">{tenant?.name}</h1>
         <p className="text-text-secondary">Create an account, or log back in</p>
       </div>

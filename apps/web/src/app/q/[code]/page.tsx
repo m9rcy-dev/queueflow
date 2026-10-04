@@ -7,6 +7,7 @@ import { Button, Card, Input } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
 import type { QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
+import { BusinessLogo } from "../../../components/BusinessLogo";
 
 /**
  * The QR-landing page (plan §9/§19) — scan a QUEUE-context code, land here,
@@ -101,6 +102,7 @@ export default function CodeLandingPage() {
   if (resolution.queue.status !== "ACTIVE") {
     return (
       <Centered>
+        <BusinessLogo logoPath={resolution.tenant.logoPath} name={resolution.tenant.name} />
         <h1 className="text-2xl font-semibold text-text-primary">{resolution.tenant.name}</h1>
         <p className="text-text-secondary">
           {resolution.queue.status === "PAUSED"
@@ -115,6 +117,7 @@ export default function CodeLandingPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 bg-bg p-6">
       <div className="pt-8 text-center">
+        <BusinessLogo logoPath={resolution.tenant.logoPath} name={resolution.tenant.name} />
         <h1 className="text-2xl font-semibold text-text-primary">{resolution.tenant.name}</h1>
         <p className="text-text-secondary">{resolution.location.name}</p>
       </div>

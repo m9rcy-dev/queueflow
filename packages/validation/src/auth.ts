@@ -47,6 +47,8 @@ export type LogoutInput = z.infer<typeof logoutSchema>;
 
 export const verifyInviteSchema = z.object({
   code: otpCodeSchema,
+  /** Phase 16: the invitee's name, asked on the acceptance page (otherwise they'd be shown by email). */
+  displayName: z.string().trim().min(1).max(200).optional(),
 });
 export type VerifyInviteInput = z.infer<typeof verifyInviteSchema>;
 
@@ -75,3 +77,9 @@ export const confirmAuthenticatorSchema = z.object({
   code: otpCodeSchema,
 });
 export type ConfirmAuthenticatorInput = z.infer<typeof confirmAuthenticatorSchema>;
+
+/** Phase 16 — which location a counter tablet is for; optional when it's implied (a location-bound member, or a one-location business). */
+export const trustDeviceSchema = z.object({
+  locationId: z.string().uuid().optional(),
+});
+export type TrustDeviceInput = z.infer<typeof trustDeviceSchema>;

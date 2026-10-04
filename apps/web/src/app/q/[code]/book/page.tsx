@@ -7,6 +7,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { AppointmentSlot, QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../../lib/api-client";
 import { addDaysTo, formatLocalDate } from "../../../../lib/appointment-format";
+import { BusinessLogo } from "../../../../components/BusinessLogo";
 
 const DAYS_SHOWN = 14;
 
@@ -125,6 +126,7 @@ export default function BookAppointmentPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 bg-bg p-6">
       <div className="pt-8 text-center">
+        <BusinessLogo logoPath={resolution.tenant.logoPath} name={resolution.tenant.name} />
         <h1 className="text-2xl font-semibold text-text-primary">{resolution.tenant.name}</h1>
         <p className="text-text-secondary">{resolution.location.name}</p>
       </div>

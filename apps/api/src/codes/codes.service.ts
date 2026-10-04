@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { generateShortPublicCode } from "../common/short-code.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
+import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 /**
  * Which contexts get the short, printed, explicitly-not-secret alphabet
@@ -148,11 +149,11 @@ export class CodesService {
     const code = await this.prisma.code.findUnique({
       where: { publicCode },
       include: {
-        tenant: true,
+        tenant: { include: { logo: { select: { updatedAt: true } } } },
         queue: {
           include: {
             location: true,
-            tenant: true,
+            tenant: { include: { logo: { select: { updatedAt: true } } } },
             queueServices: { include: { service: true } },
           },
         },
@@ -177,7 +178,10 @@ export class CodesService {
         : [];
       return {
         contextType: "QUEUE",
-        tenant: { name: code.queue.tenant.name },
+        tenant: {
+          name: code.queue.tenant.name,
+          logoPath: tenantLogoPath(code.queue.tenantId, code.queue.tenant.logo),
+        },
         location: { id: code.queue.location.id, name: code.queue.location.name },
         queue: { id: code.queue.id, name: code.queue.name, status: code.queue.status },
         capabilities:
@@ -198,7 +202,11 @@ export class CodesService {
     if (code.contextType === "GENERAL") {
       return {
         contextType: "GENERAL",
-        tenant: { id: code.tenant.id, name: code.tenant.name },
+        tenant: {
+          id: code.tenant.id,
+          name: code.tenant.name,
+          logoPath: tenantLogoPath(code.tenant.id, code.tenant.logo),
+        },
         capabilities: ["CREATE_ACCOUNT"],
       };
     }

@@ -3,6 +3,7 @@ import { Prisma, type NotificationChannel, type NotificationType } from "@prisma
 import type {
   CustomerActiveEntry,
   JoinQueueResponse,
+  PublicTicketSummary,
   QueueEntryStatus,
   QueueEntrySummary,
   QueueTodayStats,
@@ -23,6 +24,7 @@ import { resolveChannel } from "../notifications/resolve-channel";
 import { normalizePhoneToE164 } from "../common/phone.util";
 import { getLocationServiceDate } from "../common/timezone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
+import { tenantLogoPath } from "../tenants/tenant-logo.service";
 import {
   callNextOrderSql,
   compareQueueOrder,
@@ -636,15 +638,25 @@ export class QueueEntriesService {
     );
   }
 
-  async getByPublicToken(publicToken: string): Promise<QueueEntrySummary> {
-    const entry = await this.prisma.queueEntry.findUnique({ where: { publicToken } });
+  /** The customer's live ticket — plus the business name and logo for the page header (Phase 16). Never staff or other customers' details. */
+  async getByPublicToken(publicToken: string): Promise<PublicTicketSummary> {
+    const entry = await this.prisma.queueEntry.findUnique({
+      where: { publicToken },
+      include: { tenant: { include: { logo: { select: { updatedAt: true } } } } },
+    });
     if (!entry) {
       throw new NotFoundException({ code: "QUEUE_ENTRY_NOT_FOUND", message: "Ticket not found." });
     }
-    return this.toSummary(
-      entry,
-      await this.computePosition(entry, await this.servingCapacityFor(entry.queueId)),
-    );
+    return {
+      ...this.toSummary(
+        entry,
+        await this.computePosition(entry, await this.servingCapacityFor(entry.queueId)),
+      ),
+      tenant: {
+        name: entry.tenant.name,
+        logoPath: tenantLogoPath(entry.tenantId, entry.tenant.logo),
+      },
+    };
   }
 
   /**

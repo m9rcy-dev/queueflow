@@ -98,6 +98,16 @@ describe("Business administration (integration)", () => {
     return { locationId: location.body.id, serviceId: service.body.id, queueId: queue.body.id };
   }
 
+  /** Phase 16: Staff invites and counter tablets need a location (ADR-015); a fresh one, just for that. */
+  async function createLocation(accessToken: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ name: "Main", timezone: "Pacific/Auckland" })
+      .expect(201);
+    return res.body.id as string;
+  }
+
   describe("staff roster", () => {
     it("lists the owner right after signup", async () => {
       const owner = await signUpAndVerify("a-owner@example.com", "A's Shop", "Owner A");
@@ -115,7 +125,11 @@ describe("Business administration (integration)", () => {
       const inviteRes = await request(app.getHttpServer())
         .post("/tenants/me/invites")
         .set("Authorization", `Bearer ${owner.accessToken}`)
-        .send({ email: "b-staff@example.com", role: "STAFF" })
+        .send({
+          email: "b-staff@example.com",
+          role: "STAFF",
+          locationId: await createLocation(owner.accessToken),
+        })
         .expect(201);
       const invite = await prisma.tenantInvite.findUniqueOrThrow({
         where: { id: inviteRes.body.id },
@@ -143,7 +157,11 @@ describe("Business administration (integration)", () => {
       const inviteRes = await request(app.getHttpServer())
         .post("/tenants/me/invites")
         .set("Authorization", `Bearer ${owner.accessToken}`)
-        .send({ email: "c-staff@example.com", role: "STAFF" })
+        .send({
+          email: "c-staff@example.com",
+          role: "STAFF",
+          locationId: await createLocation(owner.accessToken),
+        })
         .expect(201);
       const invite = await prisma.tenantInvite.findUniqueOrThrow({
         where: { id: inviteRes.body.id },

@@ -23,14 +23,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * Re-checks the membership on every request rather than trusting the
    * token's role claim — a revoked membership or a role change takes effect
    * immediately, not only after the access token expires (up to 60 minutes
-   * later otherwise). Cheap: TenantUser is unique-indexed on
-   * (tenantId, userId).
+   * later otherwise). The same goes for a location reassignment (Phase 16).
+   * Cheap: TenantUser is unique-indexed on (tenantId, userId).
    */
   async validate(payload: AccessTokenPayload): Promise<RequestUser> {
     const membership = await this.prisma.tenantUser.findUnique({
       where: { tenantId_userId: { tenantId: payload.tenantId, userId: payload.sub } },
     });
-    if (!membership) {
+    // A removed member (Phase 16 soft removal) is locked out at once, like a deleted one.
+    if (!membership || membership.removedAt) {
       throw new UnauthorizedException({
         code: "MEMBERSHIP_REVOKED",
         message: "Your access to this business has been revoked.",
@@ -41,6 +42,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       tenantId: payload.tenantId,
       tenantUserId: membership.id,
       role: membership.role,
+      locationId: membership.locationId,
     };
   }
 }

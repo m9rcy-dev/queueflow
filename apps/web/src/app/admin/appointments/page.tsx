@@ -89,7 +89,7 @@ export default function AppointmentsPage() {
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 bg-bg p-6">
       <header className="pt-4">
         <h1 className="mb-4 text-xl font-semibold text-text-primary">Appointments</h1>
-        <AdminNav current="appointments" />
+        <AdminNav current="appointments" role={session.role} />
       </header>
 
       {!appointmentsOn && (

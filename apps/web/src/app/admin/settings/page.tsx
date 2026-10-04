@@ -8,6 +8,8 @@ import { staffApi } from "../../../lib/staff-api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
 import { AdminNav } from "../../../components/AdminNav";
 import { TicketQrCode } from "../../../components/TicketQrCode";
+import { BusinessLogo } from "../../../components/BusinessLogo";
+import { isBusinessAdmin } from "../../../lib/roles";
 
 export default function SettingsPage() {
   const session = useStaffSession();
@@ -23,7 +25,7 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !isBusinessAdmin(session.role)) return;
     staffApi.getTenant().then(setTenant);
     refreshCodes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -39,6 +41,9 @@ export default function SettingsPage() {
       setSavingCapability(null);
     }
   }
+
+  // Phase 16: managers/staff can reach this URL, but the API refuses them — say so, rather than load forever.
+  if (session && !isBusinessAdmin(session.role)) return <AdminOnly title="Settings" />;
 
   if (!session || !tenant || !generalCodes) {
     return (
@@ -62,7 +67,7 @@ export default function SettingsPage() {
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
       <header className="pt-4">
         <h1 className="mb-4 text-xl font-semibold text-text-primary">Settings</h1>
-        <AdminNav current="settings" />
+        <AdminNav current="settings" role={session.role} />
       </header>
 
       <Card className="flex flex-col gap-4">
@@ -88,6 +93,12 @@ export default function SettingsPage() {
           />
         </label>
       </Card>
+
+      <LogoCard
+        tenantName={tenant.name}
+        logoPath={tenant.logoPath}
+        onChange={(logoPath) => setTenant({ ...tenant, logoPath })}
+      />
 
       {tenant.appointmentEnabled && <AppointmentSettingsCard />}
 
@@ -260,5 +271,108 @@ function AppointmentSettingsCard() {
         </form>
       )}
     </Card>
+  );
+}
+
+const MAX_LOGO_BYTES = 500 * 1024;
+
+/**
+ * The business logo (Phase 16), shown on the customer pages and the TV
+ * board. Checked here for a quick message, and again on the server, which
+ * looks at the file's actual contents, not its name or declared type.
+ */
+function LogoCard({
+  tenantName,
+  logoPath,
+  onChange,
+}: {
+  tenantName: string;
+  logoPath: string | null;
+  onChange: (logoPath: string | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleFile(file: File | undefined): Promise<void> {
+    if (!file) return;
+    setError(null);
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setError("Choose a PNG, JPEG or WebP image.");
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setError("The logo must be 500 KB or smaller.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await staffApi.uploadLogo(file);
+      onChange(result.logoPath);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Upload failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <h2 className="text-sm font-medium uppercase tracking-wide text-text-secondary">Logo</h2>
+      <p className="text-sm text-text-secondary">
+        Shown to customers when they join the queue, on their ticket, and on the TV board. PNG, JPEG
+        or WebP, up to 500 KB.
+      </p>
+      {logoPath ? (
+        <div className="rounded-md border border-border p-4">
+          <BusinessLogo logoPath={logoPath} name={tenantName} size="lg" standalone />
+        </div>
+      ) : (
+        <p className="text-sm text-text-secondary">No logo yet.</p>
+      )}
+      <label className="flex flex-col gap-1.5 text-sm font-medium text-text-primary">
+        {logoPath ? "Replace logo" : "Upload a logo"}
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          disabled={busy}
+          onChange={(e) => {
+            void handleFile(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+          className="text-sm text-text-secondary"
+        />
+      </label>
+      {busy && <p className="text-sm text-text-secondary">Uploading…</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {logoPath && (
+        <Button
+          variant="secondary"
+          disabled={busy}
+          className="self-start"
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await staffApi.removeLogo();
+              onChange(null);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Remove logo
+        </Button>
+      )}
+    </Card>
+  );
+}
+
+function AdminOnly({ title }: { title: string }) {
+  return (
+    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-4 bg-bg p-6 pt-10">
+      <h1 className="text-xl font-semibold text-text-primary">{title}</h1>
+      <p className="text-text-secondary">
+        Only the business owner or an admin can manage this. Ask them if something needs changing.
+      </p>
+    </main>
   );
 }

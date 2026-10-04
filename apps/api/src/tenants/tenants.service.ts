@@ -1,9 +1,19 @@
 import { randomBytes } from "node:crypto";
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import type { InviteSummary, TenantMemberSummary, TenantSummary } from "@queueflow/types";
-import type { CreateInviteInput, UpdateCapabilitiesInput } from "@queueflow/validation";
+import type {
+  CreateInviteInput,
+  UpdateCapabilitiesInput,
+  UpdateMemberInput,
+} from "@queueflow/validation";
 import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { tenantLogoPath } from "./tenant-logo.service";
 
 const INVITE_TTL_DAYS = 7;
 
@@ -37,31 +47,81 @@ export class TenantsService {
           appointmentEnabled: input.appointmentEnabled,
         }),
       },
+      include: { logo: { select: { updatedAt: true } } },
     });
     return toTenantSummary(tenant);
   }
 
-  /** Current staff roster (Phase 11) — read-only; role changes/removal aren't a resolved requirement, only invite + revoke-the-invite. */
+  /** Current staff roster, with each Manager/Staff member's location (ADR-015). Removed members aren't listed. */
   async listMembers(tenantId: string): Promise<TenantMemberSummary[]> {
     await this.findOwnedTenant(tenantId);
     const memberships = await this.prisma.tenantUser.findMany({
-      where: { tenantId },
-      include: { user: { select: { displayName: true, email: true } } },
+      where: { tenantId, removedAt: null },
+      include: {
+        user: { select: { displayName: true, email: true } },
+        location: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: "asc" },
     });
-    return memberships.map((m) => ({
-      tenantUserId: m.id,
-      displayName: m.user.displayName,
-      email: m.user.email,
-      role: m.role,
-    }));
+    return memberships.map(toMemberSummary);
+  }
+
+  /**
+   * Change a member's role and/or location (Phase 16). Refused for the
+   * owner (there's exactly one, the person who signed up) and for the
+   * caller themselves (no locking yourself out by accident). The location
+   * must be this tenant's own.
+   */
+  async updateMember(
+    tenantId: string,
+    actorTenantUserId: string,
+    tenantUserId: string,
+    input: UpdateMemberInput,
+  ): Promise<TenantMemberSummary> {
+    const member = await this.findChangeableMember(tenantId, actorTenantUserId, tenantUserId);
+    const locationId = input.role === "TENANT_ADMIN" ? null : (input.locationId ?? null);
+    if (locationId) await this.assertOwnLocation(tenantId, locationId);
+    const updated = await this.prisma.tenantUser.update({
+      where: { id: member.id },
+      data: { role: input.role, locationId },
+      include: {
+        user: { select: { displayName: true, email: true } },
+        location: { select: { id: true, name: true } },
+      },
+    });
+    return toMemberSummary(updated);
+  }
+
+  /**
+   * Remove a member (Phase 16) — soft: `removedAt` is set and their
+   * sessions are revoked, so they're locked out immediately (the JWT
+   * strategy re-reads the membership on every request), while queue
+   * history they're attributed to keeps their name (D-03a). Re-inviting
+   * the same email reactivates the membership.
+   */
+  async removeMember(
+    tenantId: string,
+    actorTenantUserId: string,
+    tenantUserId: string,
+  ): Promise<void> {
+    const member = await this.findChangeableMember(tenantId, actorTenantUserId, tenantUserId);
+    await this.prisma.$transaction([
+      this.prisma.tenantUser.update({
+        where: { id: member.id },
+        data: { removedAt: new Date(), pinHash: null },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { tenantId, userId: member.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
   }
 
   async createInvite(tenantId: string, input: CreateInviteInput): Promise<InviteSummary> {
     const tenant = await this.findOwnedTenant(tenantId);
 
     const existingMembership = await this.prisma.tenantUser.findFirst({
-      where: { tenantId, user: { email: input.email } },
+      where: { tenantId, removedAt: null, user: { email: input.email } },
     });
     if (existingMembership) {
       throw new ConflictException({
@@ -78,14 +138,19 @@ export class TenantsService {
       data: { revokedAt: new Date() },
     });
 
+    const locationId = input.role === "TENANT_ADMIN" ? null : (input.locationId ?? null);
+    if (locationId) await this.assertOwnLocation(tenantId, locationId);
+
     const invite = await this.prisma.tenantInvite.create({
       data: {
         tenantId,
         email: input.email,
         role: input.role,
+        locationId,
         token: randomBytes(24).toString("base64url"),
         expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000),
       },
+      include: { location: { select: { id: true, name: true } } },
     });
 
     await this.mailService.sendInviteLink(invite.email, tenant.name, invite.token);
@@ -97,6 +162,7 @@ export class TenantsService {
     await this.findOwnedTenant(tenantId);
     const invites = await this.prisma.tenantInvite.findMany({
       where: { tenantId },
+      include: { location: { select: { id: true, name: true } } },
       orderBy: { createdAt: "desc" },
     });
     return invites.map(toInviteSummary);
@@ -114,13 +180,50 @@ export class TenantsService {
     });
   }
 
+  private async findChangeableMember(
+    tenantId: string,
+    actorTenantUserId: string,
+    tenantUserId: string,
+  ) {
+    const member = await this.prisma.tenantUser.findFirst({
+      where: { id: tenantUserId, tenantId, removedAt: null },
+    });
+    if (!member) {
+      throw new NotFoundException({ code: "MEMBER_NOT_FOUND", message: "Staff member not found." });
+    }
+    if (member.role === "TENANT_OWNER") {
+      throw new ForbiddenException({
+        code: "OWNER_NOT_CHANGEABLE",
+        message: "The business owner's access can't be changed.",
+      });
+    }
+    if (member.id === actorTenantUserId) {
+      throw new ForbiddenException({
+        code: "CANNOT_CHANGE_SELF",
+        message: "You can't change your own access. Ask another admin or the owner.",
+      });
+    }
+    return member;
+  }
+
+  /** 404 (not 400) for another tenant's location — same as every cross-resource reference (ADR-003). */
+  private async assertOwnLocation(tenantId: string, locationId: string): Promise<void> {
+    const location = await this.prisma.location.findFirst({ where: { id: locationId, tenantId } });
+    if (!location) {
+      throw new NotFoundException({ code: "LOCATION_NOT_FOUND", message: "Location not found." });
+    }
+  }
+
   /**
    * Ownership-in-the-query pattern (AGENTS.md §2): every lookup here is
    * scoped by tenantId directly, so a request for another tenant's data is
    * indistinguishable from a request for a nonexistent tenant.
    */
   private async findOwnedTenant(tenantId: string) {
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { logo: { select: { updatedAt: true } } },
+    });
     if (!tenant) {
       throw new NotFoundException({ code: "TENANT_NOT_FOUND", message: "Tenant not found." });
     }
@@ -134,6 +237,7 @@ function toTenantSummary(tenant: {
   ownerName: string;
   queueEnabled: boolean;
   appointmentEnabled: boolean;
+  logo: { updatedAt: Date } | null;
 }): TenantSummary {
   return {
     id: tenant.id,
@@ -141,6 +245,22 @@ function toTenantSummary(tenant: {
     ownerName: tenant.ownerName,
     queueEnabled: tenant.queueEnabled,
     appointmentEnabled: tenant.appointmentEnabled,
+    logoPath: tenantLogoPath(tenant.id, tenant.logo),
+  };
+}
+
+function toMemberSummary(m: {
+  id: string;
+  role: TenantMemberSummary["role"];
+  user: { displayName: string; email: string };
+  location: { id: string; name: string } | null;
+}): TenantMemberSummary {
+  return {
+    tenantUserId: m.id,
+    displayName: m.user.displayName,
+    email: m.user.email,
+    role: m.role,
+    location: m.location,
   };
 }
 
@@ -148,6 +268,7 @@ function toInviteSummary(invite: {
   id: string;
   email: string;
   role: InviteSummary["role"];
+  location: { id: string; name: string } | null;
   expiresAt: Date;
   acceptedAt: Date | null;
   revokedAt: Date | null;
@@ -156,6 +277,7 @@ function toInviteSummary(invite: {
     id: invite.id,
     email: invite.email,
     role: invite.role,
+    location: invite.location,
     expiresAt: invite.expiresAt.toISOString(),
     acceptedAt: invite.acceptedAt?.toISOString() ?? null,
     revokedAt: invite.revokedAt?.toISOString() ?? null,

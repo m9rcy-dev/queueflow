@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import type { DisplaySnapshot } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
+import { BusinessLogo } from "../../../components/BusinessLogo";
 
 const WATCHDOG_INTERVAL_MS = 15_000;
 // Comfortably more than the server's 25s heartbeat (queue-events'
@@ -112,6 +113,7 @@ export default function DisplayPage() {
       )}
 
       <header className="text-center">
+        <BusinessLogo logoPath={snapshot.tenant.logoPath} name={snapshot.tenant.name} size="lg" />
         <h1 className="text-3xl font-semibold">{snapshot.tenant.name}</h1>
         <p className="text-white/60">{snapshot.location.name}</p>
       </header>

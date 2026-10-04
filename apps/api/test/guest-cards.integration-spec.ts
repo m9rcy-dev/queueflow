@@ -99,6 +99,16 @@ describe("Guest cards & scan-to-join (integration)", () => {
     return { locationId: location.body.id, serviceId: service.body.id, queueId: queue.body.id };
   }
 
+  /** Phase 16: Staff invites and counter tablets need a location (ADR-015); a fresh one, just for that. */
+  async function createLocation(accessToken: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ name: "Main", timezone: "Pacific/Auckland" })
+      .expect(201);
+    return res.body.id as string;
+  }
+
   describe("guest card pool", () => {
     it("grows an empty pool, then shrinks it, refusing to drop a card that's currently in use", async () => {
       const owner = await signUpAndVerify("a-owner@example.com", "A's Shop", "Owner A");
@@ -166,7 +176,11 @@ describe("Guest cards & scan-to-join (integration)", () => {
       const inviteRes = await request(app.getHttpServer())
         .post("/tenants/me/invites")
         .set("Authorization", `Bearer ${owner.accessToken}`)
-        .send({ email: "staff-c@example.com", role: "STAFF" })
+        .send({
+          email: "staff-c@example.com",
+          role: "STAFF",
+          locationId: await createLocation(owner.accessToken),
+        })
         .expect(201);
       const invite = await prisma.tenantInvite.findUniqueOrThrow({
         where: { id: inviteRes.body.id },

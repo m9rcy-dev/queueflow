@@ -12,8 +12,10 @@ import {
 import {
   createInviteSchema,
   updateCapabilitiesSchema,
+  updateMemberSchema,
   type CreateInviteInput,
   type UpdateCapabilitiesInput,
+  type UpdateMemberInput,
 } from "@queueflow/validation";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -49,6 +51,25 @@ export class TenantsController {
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
   listStaff(@CurrentUser() user: RequestUser) {
     return this.tenantsService.listMembers(user.tenantId);
+  }
+
+  /** Phase 16 — change a member's role and/or location (ADR-015). */
+  @Patch("staff/:id")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  updateMember(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(updateMemberSchema)) body: UpdateMemberInput,
+  ) {
+    return this.tenantsService.updateMember(user.tenantId, user.tenantUserId, id, body);
+  }
+
+  /** Phase 16 — remove a member (soft; they're signed out everywhere at once). */
+  @Delete("staff/:id")
+  @Roles("TENANT_OWNER", "TENANT_ADMIN")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeMember(@CurrentUser() user: RequestUser, @Param("id") id: string): Promise<void> {
+    await this.tenantsService.removeMember(user.tenantId, user.tenantUserId, id);
   }
 
   @Post("invites")

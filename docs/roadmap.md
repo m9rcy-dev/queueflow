@@ -494,6 +494,28 @@ once 6 digits are typed or pasted.
 
 ---
 
+### Phase 16 — Team & Branding
+
+**Status: ✅ Done** (2026-10-04) — see `docs/status/phase-16.md`, ADR-015
+
+Managers and staff allocated to one location, with server-side enforcement on every location-scoped
+route (a route sweep test proves it); counter tablets bound to a location; an invite-acceptance page
+(link in the invite email, name captured); changing a member's role/location and removing them (soft,
+history kept); a business logo shown on every customer-facing page and the TV board.
+
+## Next
+
+### Phase 17 — First Deploy
+
+**Status: Not started** (agreed 2026-10-04)
+
+Lock CORS to the web app's origin (it still allows any origin); a `render.yaml` for the API (build,
+`prisma migrate deploy`, start, health check); documented Vercel settings for the monorepo web app;
+a deploy runbook (Neon, Render, Vercel, Pingram sender verification, every environment variable, DNS
+for `q.m9rcy.dev`, smoke-test checklist). Hosting per ADR-009 unless the user decides otherwise.
+
+---
+
 ## Explicitly deferred — not scheduled, revisit only on real demand
 
 These are real, not forgotten — each has partial spec already captured so a future phase doesn't
@@ -527,6 +549,6 @@ start from nothing:
 
 ## Count, for reference
 
-**16 phases in the active roadmap (0–15), all done.** Plus 4
+**18 phases in the active roadmap (0–17)**: 0–16 done, 17 next. Plus 4
 explicitly deferred workstreams (analytics trends, platform admin, billing, flash-crowd/waiting-room
 queuing) tracked but not scheduled.

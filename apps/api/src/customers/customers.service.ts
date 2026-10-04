@@ -10,6 +10,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { QueueEntriesService } from "../queue-entries/queue-entries.service";
 import { CodesService } from "../codes/codes.service";
 import { normalizePhoneToE164 } from "../common/phone.util";
+import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 /**
  * Customer accounts (Phase 9, D-09) — the account-holding half of the
@@ -91,12 +92,19 @@ export class CustomersService {
   async getPortalSummary(tenantId: string, customerId: string): Promise<CustomerPortalSummary> {
     const [customer, tenant, identityCode] = await Promise.all([
       this.prisma.customer.findUniqueOrThrow({ where: { id: customerId } }),
-      this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
+      this.prisma.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        include: { logo: { select: { updatedAt: true } } },
+      }),
       this.codesService.createForCustomer(tenantId, customerId),
     ]);
     return {
       customer: toAuthenticatedUser(customer),
-      tenant: { id: tenant.id, name: tenant.name },
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        logoPath: tenantLogoPath(tenant.id, tenant.logo),
+      },
       identityCode: identityCode.publicCode,
     };
   }

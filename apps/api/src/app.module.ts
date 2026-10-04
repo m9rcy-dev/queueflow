@@ -1,8 +1,9 @@
-import { Module } from "@nestjs/common";
+import { type MiddlewareConsumer, Module, type NestModule, RequestMethod } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ScheduleModule } from "@nestjs/schedule";
 import { ThrottlerModule } from "@nestjs/throttler";
+import { LocationAccessModule } from "./access/location-access.module";
 import { AppointmentsModule } from "./appointments/appointments.module";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
@@ -23,6 +24,7 @@ import { QueuesModule } from "./queues/queues.module";
 import { RetentionModule } from "./retention/retention.module";
 import { ServicesModule } from "./services/services.module";
 import { TenantsModule } from "./tenants/tenants.module";
+import { RawImageBodyMiddleware } from "./tenants/raw-image-body.middleware";
 
 @Module({
   imports: [
@@ -40,6 +42,7 @@ import { TenantsModule } from "./tenants/tenants.module";
     ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 100 }]),
     PrismaModule,
     CommonModule,
+    LocationAccessModule,
     QueueEventsModule,
     HealthModule,
     AuthModule,
@@ -64,4 +67,11 @@ import { TenantsModule } from "./tenants/tenants.module";
     { provide: APP_GUARD, useClass: AppThrottlerGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /** The logo upload is a raw image body, not JSON (Phase 16). */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(RawImageBodyMiddleware)
+      .forRoutes({ path: "tenants/me/logo", method: RequestMethod.PUT });
+  }
+}

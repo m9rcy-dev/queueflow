@@ -48,7 +48,7 @@ export interface PublicAppointmentSummary {
   startsAt: string;
   endsAt: string;
   timezone: string;
-  tenant: { name: string };
+  tenant: { name: string; logoPath: string | null };
   location: { name: string; address: string | null };
   service: { name: string; durationMinutes: number };
   /** False once the customer self-cancel window has passed (§76), or already cancelled. */

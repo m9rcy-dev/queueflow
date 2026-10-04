@@ -84,6 +84,16 @@ describe("Locations & Services (integration)", () => {
     return verifyRes.body as { accessToken: string };
   }
 
+  /** Phase 16: Staff invites and counter tablets need a location (ADR-015); a fresh one, just for that. */
+  async function createLocation(accessToken: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ name: "Main", timezone: "Pacific/Auckland" })
+      .expect(201);
+    return res.body.id as string;
+  }
+
   it("creates a location, sets split business hours, and creates a service under it", async () => {
     const owner = await signUpAndVerify("loc-owner-a@example.com", "Joe's Barbers", "Joe");
 
@@ -192,7 +202,11 @@ describe("Locations & Services (integration)", () => {
     const inviteRes = await request(app.getHttpServer())
       .post("/tenants/me/invites")
       .set("Authorization", `Bearer ${owner.accessToken}`)
-      .send({ email: "staff-g@example.com", role: "STAFF" })
+      .send({
+        email: "staff-g@example.com",
+        role: "STAFF",
+        locationId: await createLocation(owner.accessToken),
+      })
       .expect(201);
     const invite = await prisma.tenantInvite.findUniqueOrThrow({
       where: { id: inviteRes.body.id },

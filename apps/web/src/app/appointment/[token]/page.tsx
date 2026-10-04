@@ -9,6 +9,7 @@ import type { PublicAppointmentSummary } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { formatDateTimeIn } from "../../../lib/appointment-format";
 import { TicketQrCode } from "../../../components/TicketQrCode";
+import { BusinessLogo } from "../../../components/BusinessLogo";
 
 /**
  * An appointment's own page (Phase 13), reached from the booking
@@ -92,6 +93,7 @@ export default function AppointmentPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 bg-bg p-6">
       <div className="pt-8 text-center">
+        <BusinessLogo logoPath={appointment.tenant.logoPath} name={appointment.tenant.name} />
         <h1 className="text-2xl font-semibold text-text-primary">{appointment.tenant.name}</h1>
         <p className="text-text-secondary">{appointment.location.name}</p>
       </div>

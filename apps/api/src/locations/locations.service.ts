@@ -29,9 +29,10 @@ export class LocationsService {
     return toLocationSummary(location);
   }
 
-  async list(tenantId: string): Promise<LocationSummary[]> {
+  /** `onlyLocationId` narrows to one location (a location-bound staff member, ADR-015). */
+  async list(tenantId: string, onlyLocationId?: string): Promise<LocationSummary[]> {
     const locations = await this.prisma.location.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(onlyLocationId && { id: onlyLocationId }) },
       orderBy: { createdAt: "asc" },
     });
     return locations.map(toLocationSummary);

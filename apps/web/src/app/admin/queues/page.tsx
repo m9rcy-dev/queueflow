@@ -8,6 +8,7 @@ import type { LocationSummary, QueueSummary } from "@queueflow/types";
 import { staffApi } from "../../../lib/staff-api-client";
 import { useStaffSession } from "../../../lib/use-staff-session";
 import { AdminNav } from "../../../components/AdminNav";
+import { isBusinessAdmin } from "../../../lib/roles";
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -41,7 +42,7 @@ export default function QueuesPage() {
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 bg-bg p-6 pt-10">
       <header>
         <h1 className="mb-4 text-xl font-semibold text-text-primary">Queues</h1>
-        <AdminNav current="queues" />
+        <AdminNav current="queues" role={session.role} />
       </header>
 
       <div className="flex flex-col gap-3">
@@ -71,9 +72,11 @@ export default function QueuesPage() {
           }}
         />
       ) : (
-        <Button variant="secondary" onClick={() => setShowForm(true)}>
-          + New queue
-        </Button>
+        isBusinessAdmin(session.role) && (
+          <Button variant="secondary" onClick={() => setShowForm(true)}>
+            + New queue
+          </Button>
+        )
       )}
     </main>
   );

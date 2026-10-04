@@ -21,7 +21,7 @@ export default function AccountPage() {
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 bg-bg p-6">
       <header className="pt-4">
         <h1 className="mb-4 text-xl font-semibold text-text-primary">Your account</h1>
-        <AdminNav current="account" />
+        <AdminNav current="account" role={session.role} />
       </header>
       <AuthenticatorSettings api={staffApi} />
     </main>

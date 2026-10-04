@@ -4,6 +4,7 @@ import type {
   CodeResolution,
   JoinQueueResponse,
   PublicAppointmentSummary,
+  PublicTicketSummary,
   QueueEntrySummary,
 } from "@queueflow/types";
 import type { BookAppointmentInput, JoinQueueInput } from "@queueflow/validation";
@@ -19,7 +20,7 @@ import { ApiError } from "./errors";
 export interface PublicApiClient {
   resolveCode(code: string): Promise<CodeResolution>;
   joinQueue(queueId: string, input: JoinQueueInput): Promise<JoinQueueResponse>;
-  getTicket(token: string): Promise<QueueEntrySummary>;
+  getTicket(token: string): Promise<PublicTicketSummary>;
   cancelTicket(token: string, reason?: string): Promise<QueueEntrySummary>;
   /** Not fetched directly — handed to an EventSource by the caller (browser-only API, so this stays a plain URL rather than a method that opens the connection itself). */
   ticketEventsUrl(token: string): string;

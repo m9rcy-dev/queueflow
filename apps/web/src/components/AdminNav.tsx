@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import type { TenantRole } from "@queueflow/types";
+import { isBusinessAdmin } from "../lib/roles";
 
 const LINKS = [
   { href: "/admin/queues", label: "Queues" },
   { href: "/admin/appointments", label: "Appointments" },
   { href: "/admin/locations", label: "Locations" },
-  { href: "/admin/staff", label: "Staff" },
-  { href: "/admin/settings", label: "Settings" },
+  { href: "/admin/staff", label: "Staff", adminOnly: true },
+  { href: "/admin/settings", label: "Settings", adminOnly: true },
   { href: "/admin/account", label: "Account" },
 ] as const;
 
@@ -19,12 +21,15 @@ const LINKS = [
  */
 export function AdminNav({
   current,
+  role,
 }: {
   current: "queues" | "appointments" | "locations" | "staff" | "settings" | "account";
+  /** Phase 16: Staff and Settings are hidden from managers/staff, who can't use them. */
+  role: TenantRole;
 }) {
   return (
     <nav className="flex gap-4 border-b border-border pb-3 text-sm">
-      {LINKS.map((link) => {
+      {LINKS.filter((link) => !("adminOnly" in link) || isBusinessAdmin(role)).map((link) => {
         const isCurrent = link.href === `/admin/${current}`;
         return (
           <Link

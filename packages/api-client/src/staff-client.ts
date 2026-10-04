@@ -4,6 +4,7 @@ import type {
   AuthenticatorSetup,
   AuthenticatorStatus,
   AuthSuccessResponse,
+  InviteDetails,
   BookAppointmentResponse,
   CreateClosureResponse,
   LocationClosureSummary,
@@ -38,10 +39,23 @@ import type {
   UpdateAppointmentSettingsInput,
   UpdateCapabilitiesInput,
   UpdateLocationInput,
+  UpdateMemberInput,
   UpdateQueueConfigInput,
   UpdateServiceInput,
 } from "@queueflow/validation";
 import { ApiError } from "./errors";
+
+/**
+ * Whether a 401 on this path should trigger one silent refresh-and-retry.
+ * The sign-in endpoints themselves never retry (a refresh can't fix a
+ * wrong code, and /auth/refresh retrying itself would loop) — but
+ * /auth/me/* are ordinary authenticated calls and must retry like
+ * anything else (Phase 16 fix: the Phase 15 authenticator settings, under
+ * /auth/me/authenticator, failed outright once the access token expired).
+ */
+function shouldRefreshOn401(path: string): boolean {
+  return !path.startsWith("/auth/") || path === "/auth/me" || path.startsWith("/auth/me/");
+}
 
 /** Mirrors apps/api's RequestUser (an API-internal shape, not published to @queueflow/types) — what GET /auth/me returns. */
 export interface StaffSession {
@@ -142,9 +156,11 @@ export class StaffApiClient {
   }
 
   /** "Trust this device" (D-03a) — call once already authenticated. Persists the returned token for tryRestoreDeviceContext() on future app loads. */
-  async trustDevice(): Promise<TrustDeviceResponse> {
+  /** Phase 16: the tablet belongs to one location — pass it when it isn't implied (a multi-location owner/admin). */
+  async trustDevice(locationId?: string): Promise<TrustDeviceResponse> {
     const response = await this.request<TrustDeviceResponse>("/auth/devices/trust", {
       method: "POST",
+      body: locationId ? { locationId } : {},
     });
     await this.tokenStorage?.setDeviceTrustToken(response.deviceTrustToken);
     return response;
@@ -232,6 +248,65 @@ export class StaffApiClient {
 
   createInvite(input: CreateInviteInput): Promise<InviteSummary> {
     return this.request("/tenants/me/invites", { method: "POST", body: input });
+  }
+
+  /** Phase 16 — change a member's role and/or location. */
+  updateMember(tenantUserId: string, input: UpdateMemberInput): Promise<TenantMemberSummary> {
+    return this.request(`/tenants/me/staff/${tenantUserId}`, { method: "PATCH", body: input });
+  }
+
+  /** Phase 16 — remove a member (they're signed out at once). */
+  removeMember(tenantUserId: string): Promise<void> {
+    return this.request(`/tenants/me/staff/${tenantUserId}`, { method: "DELETE" });
+  }
+
+  // --- Accepting an invite (Phase 16) — no session yet; the token in the link is the credential. ---
+
+  getInviteDetails(token: string): Promise<InviteDetails> {
+    return this.request(`/auth/invites/${encodeURIComponent(token)}`);
+  }
+
+  async requestInviteCode(token: string): Promise<void> {
+    await this.request(`/auth/invites/${encodeURIComponent(token)}/request`, { method: "POST" });
+  }
+
+  /** Verifies the emailed code and signs the new member straight in. */
+  async acceptInvite(
+    token: string,
+    code: string,
+    displayName: string,
+  ): Promise<AuthSuccessResponse> {
+    const response = await this.request<AuthSuccessResponse>(
+      `/auth/invites/${encodeURIComponent(token)}/verify`,
+      { method: "POST", body: { code, displayName } },
+    );
+    await this.applyAuthResponse(response);
+    return response;
+  }
+
+  // --- Business logo (Phase 16) ---
+
+  /** Sends the image file as the raw request body; the API checks it really is a PNG/JPEG/WebP of 500 KB or less. */
+  async uploadLogo(file: Blob): Promise<{ logoPath: string }> {
+    const send = () =>
+      this.fetchImpl(`${this.baseUrl}/tenants/me/logo`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          ...(this.accessToken && { Authorization: `Bearer ${this.accessToken}` }),
+        },
+        body: file,
+      });
+    let response = await send();
+    // Same one silent refresh-and-retry as request().
+    if (response.status === 401 && (await this.refreshAccessToken())) {
+      response = await send();
+    }
+    return this.parseResponse(response);
+  }
+
+  removeLogo(): Promise<void> {
+    return this.request("/tenants/me/logo", { method: "DELETE" });
   }
 
   listInvites(): Promise<InviteSummary[]> {
@@ -514,13 +589,17 @@ export class StaffApiClient {
     // A 401 on anything other than the auth endpoints themselves gets one
     // silent refresh-and-retry — the caller never sees the expired-token
     // error unless the refresh token has also expired/been revoked.
-    if (response.status === 401 && !isRetry && !path.startsWith("/auth/")) {
+    if (response.status === 401 && !isRetry && shouldRefreshOn401(path)) {
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
         return this.request<T>(path, options, true);
       }
     }
 
+    return this.parseResponse<T>(response);
+  }
+
+  private async parseResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
       const errorBody = (await response.json().catch(() => ({}))) as {
         code?: string;

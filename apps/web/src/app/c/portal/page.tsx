@@ -14,6 +14,7 @@ import { customerApi } from "../../../lib/customer-api-client";
 import { TicketQrCode } from "../../../components/TicketQrCode";
 import { formatDateTimeIn } from "../../../lib/appointment-format";
 import { AuthenticatorSettings } from "../../../components/AuthenticatorSettings";
+import { BusinessLogo } from "../../../components/BusinessLogo";
 
 const STATUS_COPY: Record<QueueEntryStatus, { title: string; tone: BadgeTone }> = {
   WAITING: { title: "Waiting", tone: "info" },
@@ -98,6 +99,7 @@ export default function CustomerPortalPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col items-center gap-6 bg-bg p-6 pt-10 text-center">
       <div>
+        <BusinessLogo logoPath={summary.tenant.logoPath} name={summary.tenant.name} />
         <h1 className="text-2xl font-semibold text-text-primary">{summary.tenant.name}</h1>
         <p className="text-text-secondary">Hi, {summary.customer.firstName ?? "there"}</p>
       </div>

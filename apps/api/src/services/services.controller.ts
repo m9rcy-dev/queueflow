@@ -12,10 +12,14 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { Roles } from "../auth/roles.decorator";
 import type { RequestUser } from "../auth/request-user.interface";
 import { ServicesService } from "./services.service";
+import { LocationAccessService } from "../access/location-access.service";
 
 @Controller("tenants/me/services")
 export class ServicesController {
-  constructor(private readonly servicesService: ServicesService) {}
+  constructor(
+    private readonly servicesService: ServicesService,
+    private readonly access: LocationAccessService,
+  ) {}
 
   @Post()
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
@@ -31,11 +35,15 @@ export class ServicesController {
     @CurrentUser() user: RequestUser,
     @Query(new ZodValidationPipe(listServicesQuerySchema)) query: ListServicesQuery,
   ) {
-    return this.servicesService.list(user.tenantId, query.locationId);
+    return this.servicesService.list(
+      user.tenantId,
+      this.access.listLocation(user, query.locationId),
+    );
   }
 
   @Get(":id")
-  get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+  async get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    await this.access.assertService(user, id);
     return this.servicesService.get(user.tenantId, id);
   }
 

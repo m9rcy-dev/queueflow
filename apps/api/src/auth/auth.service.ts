@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -10,6 +12,7 @@ import type {
   AuthTokens,
   AuthSuccessResponse,
   DeviceContextResponse,
+  InviteDetails,
   LoginVerifyResponse,
   MembershipSummary,
   TenantSummary,
@@ -21,6 +24,7 @@ import { MailService } from "../mail/mail.service";
 import { PinService } from "./pin.service";
 import { TokenService } from "./token.service";
 import { AuthenticatorService } from "../authenticator/authenticator.service";
+import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 const MAX_VERIFY_ATTEMPTS = 5;
 const MAX_PIN_ATTEMPTS = 5;
@@ -163,7 +167,7 @@ export class AuthService {
     }
 
     const memberships = await this.prisma.tenantUser.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, removedAt: null },
       include: { tenant: true },
       orderBy: { createdAt: "asc" },
     });
@@ -195,7 +199,7 @@ export class AuthService {
       where: { tenantId_userId: { tenantId, userId } },
       include: { tenant: true, user: true },
     });
-    if (!membership) {
+    if (!membership || membership.removedAt) {
       throw new ForbiddenException({
         code: "NO_TENANT_ACCESS",
         message: "You do not have access to that business.",
@@ -220,7 +224,7 @@ export class AuthService {
     const membership = await this.prisma.tenantUser.findUnique({
       where: { tenantId_userId: { tenantId: stored.tenantId, userId: stored.userId } },
     });
-    if (!membership) {
+    if (!membership || membership.removedAt) {
       await this.prisma.refreshToken.update({
         where: { id: stored.id },
         data: { revokedAt: new Date() },
@@ -259,14 +263,27 @@ export class AuthService {
   /**
    * "The tablet trusts once" (D-03a) — an already-authenticated staff
    * member opts a shared counter device into skipping straight to PIN
-   * switching next time. Scoped to the tenant, not this one user: any
-   * staff member of the same business can PIN-switch in on a device once
-   * it's trusted, that's the whole point of the shared-tablet flow.
+   * switching next time. Not tied to this one user: any staff member of
+   * the tablet's location can PIN-switch in on it.
+   *
+   * Phase 16 (ADR-015): the tablet belongs to one location — a location-
+   * bound member's own; otherwise the one requested (the dashboard sends
+   * its queue's location); otherwise the business's only location. A
+   * multi-location owner/admin who names none gets LOCATION_REQUIRED.
    */
-  async trustDevice(tenantId: string): Promise<TrustDeviceResponse> {
+  async trustDevice(
+    user: { tenantId: string; locationId: string | null },
+    requestedLocationId?: string,
+  ): Promise<TrustDeviceResponse> {
+    const locationId = await this.resolveTabletLocation(user, requestedLocationId);
     const generated = this.tokenService.generateDeviceTrustToken();
     await this.prisma.deviceTrust.create({
-      data: { tenantId, tokenHash: generated.tokenHash, expiresAt: generated.expiresAt },
+      data: {
+        tenantId: user.tenantId,
+        locationId,
+        tokenHash: generated.tokenHash,
+        expiresAt: generated.expiresAt,
+      },
     });
     return { deviceTrustToken: generated.token, expiresAt: generated.expiresAt.toISOString() };
   }
@@ -281,10 +298,20 @@ export class AuthService {
     const trust = await this.findActiveDeviceTrust(deviceTrustToken);
     const rotatedToken = await this.rotateDeviceTrust(trust);
 
-    const [tenant, memberships] = await Promise.all([
+    const [tenant, location, memberships] = await Promise.all([
       this.prisma.tenant.findUniqueOrThrow({ where: { id: trust.tenantId } }),
+      trust.locationId
+        ? this.prisma.location.findUnique({
+            where: { id: trust.locationId },
+            select: { id: true, name: true },
+          })
+        : null,
       this.prisma.tenantUser.findMany({
-        where: { tenantId: trust.tenantId },
+        where: {
+          tenantId: trust.tenantId,
+          removedAt: null,
+          ...tabletStaffFilter(trust.locationId),
+        },
         include: { user: true },
         orderBy: { createdAt: "asc" },
       }),
@@ -293,6 +320,7 @@ export class AuthService {
     return {
       deviceTrustToken: rotatedToken,
       tenant: { id: tenant.id, name: tenant.name },
+      location,
       staff: memberships.map((membership) => ({
         tenantUserId: membership.id,
         displayName: membership.user.displayName,
@@ -322,7 +350,12 @@ export class AuthService {
     // The membership must belong to the SAME tenant this device is trusted
     // for — a device trusted for Tenant A must never authenticate someone
     // as Tenant B's staff, even if they somehow know a valid tenantUserId.
-    if (!membership || membership.tenantId !== trust.tenantId) {
+    if (
+      !membership ||
+      membership.tenantId !== trust.tenantId ||
+      membership.removedAt ||
+      !canUseTablet(membership, trust.locationId)
+    ) {
       throw invalidPin();
     }
     if (membership.pinLockedUntil && membership.pinLockedUntil > new Date()) {
@@ -381,8 +414,27 @@ export class AuthService {
     await this.mailService.sendInviteCode(invite.email, code, invite.tenant.name);
   }
 
-  /** Staff invite acceptance, step 2 — verifies the code, creates the membership. */
-  async acceptInvite(token: string, submittedCode: string) {
+  /** For the invite-acceptance page (Phase 16): who's inviting, and as what. The token is the credential, as for every invite step. */
+  async getInviteDetails(token: string): Promise<InviteDetails> {
+    const invite = await this.findAcceptableInvite(token);
+    const location = invite.locationId
+      ? await this.prisma.location.findUnique({ where: { id: invite.locationId } })
+      : null;
+    return {
+      tenantName: invite.tenant.name,
+      email: invite.email,
+      role: invite.role,
+      locationName: location?.name ?? null,
+    };
+  }
+
+  /**
+   * Staff invite acceptance, step 2 — verifies the code, creates the
+   * membership (or reactivates a removed one, Phase 16) with the invite's
+   * role and location. `displayName` names a newly created person; an
+   * existing user keeps theirs unless it was still just their email.
+   */
+  async acceptInvite(token: string, submittedCode: string, displayName?: string) {
     const invite = await this.findAcceptableInvite(token);
     if (!invite.codeHash || !invite.codeExpiresAt || invite.codeExpiresAt < new Date()) {
       throw invalidInviteCode();
@@ -402,19 +454,34 @@ export class AuthService {
       let existingUser = await tx.user.findUnique({ where: { email: invite.email } });
       if (!existingUser) {
         existingUser = await tx.user.create({
-          data: { email: invite.email, displayName: invite.email, emailVerifiedAt: new Date() },
+          data: {
+            email: invite.email,
+            displayName: displayName ?? invite.email,
+            emailVerifiedAt: new Date(),
+          },
         });
-      } else if (!existingUser.emailVerifiedAt) {
+      } else if (
+        !existingUser.emailVerifiedAt ||
+        (displayName && existingUser.displayName === existingUser.email)
+      ) {
         existingUser = await tx.user.update({
           where: { id: existingUser.id },
-          data: { emailVerifiedAt: new Date() },
+          data: {
+            emailVerifiedAt: existingUser.emailVerifiedAt ?? new Date(),
+            ...(displayName && existingUser.displayName === existingUser.email && { displayName }),
+          },
         });
       }
 
       const createdMembership = await tx.tenantUser.upsert({
         where: { tenantId_userId: { tenantId: invite.tenantId, userId: existingUser.id } },
-        create: { tenantId: invite.tenantId, userId: existingUser.id, role: invite.role },
-        update: { role: invite.role },
+        create: {
+          tenantId: invite.tenantId,
+          userId: existingUser.id,
+          role: invite.role,
+          locationId: invite.locationId,
+        },
+        update: { role: invite.role, locationId: invite.locationId, removedAt: null },
       });
 
       await tx.tenantInvite.update({
@@ -428,6 +495,33 @@ export class AuthService {
     return this.issueSession(user, invite.tenant, membership.role);
   }
 
+  private async resolveTabletLocation(
+    user: { tenantId: string; locationId: string | null },
+    requestedLocationId?: string,
+  ): Promise<string> {
+    if (user.locationId) return user.locationId;
+    if (requestedLocationId) {
+      const location = await this.prisma.location.findFirst({
+        where: { id: requestedLocationId, tenantId: user.tenantId },
+      });
+      if (!location) {
+        throw new NotFoundException({ code: "LOCATION_NOT_FOUND", message: "Location not found." });
+      }
+      return location.id;
+    }
+    const locations = await this.prisma.location.findMany({
+      where: { tenantId: user.tenantId },
+      select: { id: true },
+      take: 2,
+    });
+    if (locations.length === 1) return locations[0].id;
+    throw new BadRequestException({
+      code: "LOCATION_REQUIRED",
+      message:
+        "Choose which location this tablet is for: open that location's queue and trust the device from there.",
+    });
+  }
+
   private async findActiveDeviceTrust(token: string) {
     const tokenHash = this.tokenService.hashDeviceTrustToken(token);
     const trust = await this.prisma.deviceTrust.findUnique({ where: { tokenHash } });
@@ -438,7 +532,11 @@ export class AuthService {
   }
 
   /** Rotate: revoke the presented trust token, issue a new one (ADR-004). Returns the new plaintext token. */
-  private async rotateDeviceTrust(trust: { id: string; tenantId: string }): Promise<string> {
+  private async rotateDeviceTrust(trust: {
+    id: string;
+    tenantId: string;
+    locationId: string | null;
+  }): Promise<string> {
     const generated = this.tokenService.generateDeviceTrustToken();
     await this.prisma.$transaction([
       this.prisma.deviceTrust.update({
@@ -448,6 +546,7 @@ export class AuthService {
       this.prisma.deviceTrust.create({
         data: {
           tenantId: trust.tenantId,
+          locationId: trust.locationId,
           tokenHash: generated.tokenHash,
           expiresAt: generated.expiresAt,
         },
@@ -555,12 +654,17 @@ export class AuthService {
       email: user.email,
       displayName: user.displayName,
     };
+    const logo = await this.prisma.tenantLogo.findUnique({
+      where: { tenantId: tenant.id },
+      select: { updatedAt: true },
+    });
     const tenantSummary: TenantSummary = {
       id: tenant.id,
       name: tenant.name,
       ownerName: tenant.ownerName,
       queueEnabled: tenant.queueEnabled,
       appointmentEnabled: tenant.appointmentEnabled,
+      logoPath: tenantLogoPath(tenant.id, logo),
     };
 
     return {
@@ -572,6 +676,21 @@ export class AuthService {
       role,
     };
   }
+}
+
+/** Who appears on a tablet's PIN list: its location's staff plus the business-wide roles (ADR-015). A pre-Phase-16 tablet with no location lists everyone. */
+function tabletStaffFilter(locationId: string | null): Prisma.TenantUserWhereInput {
+  if (!locationId) return {};
+  return { OR: [{ locationId }, { role: { in: ["TENANT_OWNER", "TENANT_ADMIN"] } }] };
+}
+
+function canUseTablet(
+  membership: { role: string; locationId: string | null },
+  tabletLocationId: string | null,
+): boolean {
+  if (!tabletLocationId) return true;
+  if (membership.role === "TENANT_OWNER" || membership.role === "TENANT_ADMIN") return true;
+  return membership.locationId === tabletLocationId;
 }
 
 function toMembershipSummary(membership: {

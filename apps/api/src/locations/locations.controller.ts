@@ -12,11 +12,15 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { Roles } from "../auth/roles.decorator";
 import type { RequestUser } from "../auth/request-user.interface";
 import { LocationsService } from "./locations.service";
+import { LocationAccessService } from "../access/location-access.service";
 
 /** Every route operates on "my tenant's locations" — tenantId always comes from the token, never the URL/body. */
 @Controller("tenants/me/locations")
 export class LocationsController {
-  constructor(private readonly locationsService: LocationsService) {}
+  constructor(
+    private readonly locationsService: LocationsService,
+    private readonly access: LocationAccessService,
+  ) {}
 
   @Post()
   @Roles("TENANT_OWNER", "TENANT_ADMIN")
@@ -29,11 +33,12 @@ export class LocationsController {
 
   @Get()
   list(@CurrentUser() user: RequestUser) {
-    return this.locationsService.list(user.tenantId);
+    return this.locationsService.list(user.tenantId, this.access.locationFilter(user));
   }
 
   @Get(":id")
   get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    this.access.assertLocation(user, id);
     return this.locationsService.get(user.tenantId, id);
   }
 
@@ -49,6 +54,7 @@ export class LocationsController {
 
   @Get(":id/business-hours")
   getBusinessHours(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    this.access.assertLocation(user, id);
     return this.locationsService.getBusinessHours(user.tenantId, id);
   }
 

@@ -32,6 +32,7 @@ import { generateSecurePublicToken } from "../common/secure-token.util";
 import { addDays, dayOfWeekOf, formatLocalDate, localTimeToUtc } from "../common/timezone.util";
 import { formatLocalMinutes, generateSlots, type GeneratedSlot } from "./slot-engine";
 import { appointmentManageUrl } from "./appointment-links";
+import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 const MINUTE_MS = 60_000;
 
@@ -70,7 +71,7 @@ type BookingContext = {
 const PUBLIC_INCLUDE = {
   service: true,
   location: true,
-  tenant: true,
+  tenant: { include: { logo: { select: { updatedAt: true } } } },
   ticketCode: { select: { publicCode: true, active: true } },
   queueEntry: { select: { publicToken: true } },
 } satisfies Prisma.AppointmentInclude;
@@ -718,7 +719,10 @@ function toPublicSummary(appointment: PublicAppointmentRow, now: Date): PublicAp
     startsAt: appointment.startsAt.toISOString(),
     endsAt: appointment.endsAt.toISOString(),
     timezone: appointment.location.timezone,
-    tenant: { name: appointment.tenant.name },
+    tenant: {
+      name: appointment.tenant.name,
+      logoPath: tenantLogoPath(appointment.tenantId, appointment.tenant.logo),
+    },
     location: { name: appointment.location.name, address: appointment.location.address },
     service: {
       name: appointment.service.name,

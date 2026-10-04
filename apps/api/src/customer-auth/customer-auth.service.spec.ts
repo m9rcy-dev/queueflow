@@ -184,7 +184,7 @@ describe("CustomerAuthService", () => {
           phoneE164: "+64211234567",
           email: "alice@example.com",
         },
-        tenant: { id: tenantId, name: "Joe's Barbers" },
+        tenant: { id: tenantId, name: "Joe's Barbers", logoPath: null },
       });
     });
   });

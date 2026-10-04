@@ -71,6 +71,16 @@ describe("Codes / QR resolver (integration)", () => {
     return verifyRes.body as { accessToken: string };
   }
 
+  /** Phase 16: Staff invites and counter tablets need a location (ADR-015); a fresh one, just for that. */
+  async function createLocation(accessToken: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post("/tenants/me/locations")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ name: "Main", timezone: "Pacific/Auckland" })
+      .expect(201);
+    return res.body.id as string;
+  }
+
   it("creates a code for a queue and resolves it publicly with the right landing info", async () => {
     const owner = await signUpAndVerify("code-owner-a@example.com", "Joe's Barbers", "Joe");
     const location = await request(app.getHttpServer())
@@ -105,7 +115,7 @@ describe("Codes / QR resolver (integration)", () => {
       .expect(200);
     expect(resolved.body).toEqual({
       contextType: "QUEUE",
-      tenant: { name: "Joe's Barbers" },
+      tenant: { name: "Joe's Barbers", logoPath: null },
       location: { id: location.body.id, name: "Christchurch" },
       queue: { id: queue.body.id, name: "Main Queue", status: "ACTIVE" },
       capabilities: ["JOIN_QUEUE"],
@@ -155,7 +165,11 @@ describe("Codes / QR resolver (integration)", () => {
     const inviteRes = await request(app.getHttpServer())
       .post("/tenants/me/invites")
       .set("Authorization", `Bearer ${owner.accessToken}`)
-      .send({ email: "staff-d@example.com", role: "STAFF" })
+      .send({
+        email: "staff-d@example.com",
+        role: "STAFF",
+        locationId: await createLocation(owner.accessToken),
+      })
       .expect(201);
     const invite = await prisma.tenantInvite.findUniqueOrThrow({
       where: { id: inviteRes.body.id },
