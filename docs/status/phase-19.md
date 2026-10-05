@@ -71,6 +71,32 @@ New owners get a **Get started** checklist on the Queues page (location, service
 poster, logo) until every step is done. On a trusted tablet, the staff login's email link now
 reads "Someone else, or another business? Sign in with email".
 
+**Customer emails, the TV board, phone testing** (from the user's testing, same day):
+
+- **Emails on tickets and bookings.** Joining takes an optional email; booking from the web form
+  requires one.
+  - It's saved on the ticket or booking as `contactEmail` (migration
+    `20261005120000_add_contact_emails`), not as an account login, so nobody can attach
+    themselves to someone else's account.
+  - Notifications go to that email first, then an account email, then SMS.
+  - Joining with an email sends "you're in the queue" with the ticket link (new type `JOINED`).
+  - The booking confirmation email has an add-to-Google-Calendar link, and the appointment page
+    has **Add to calendar** (Google, or an `.ics` file for Apple and Outlook).
+- **The browser remembers tickets and bookings.** Going back to a poster's page shows "You're
+  already in this queue" or "You have a booking here", with a link back to it.
+- **TV board:** the next three are the large ones. #1 is the biggest; #2 and #3 sit side by side;
+  everyone after that is in a smaller grid.
+- **Testing from a phone over the Mac's IP now works.**
+  - In development, the web app calls the API on port 4001 of the address the page was opened
+    on. The security policy allows the same address, read from the `Host` header because Next
+    reports its own hostname in development.
+  - `upgrade-insecure-requests` (which turned a phone's plain-HTTP requests into HTTPS) now
+    applies in production only.
+  - `scripts/dev.sh lan` also points email links at the Mac's IP.
+  - Checked from the Mac via its IP: the page loads, the policy names the IP, and the API's CORS
+    accepts it. Not yet tried from an actual phone.
+- **README:** a section on testing from a phone, and every entry point by role.
+
 ## Tests
 
 - **Unit, 298:** the allow-list matching (case, spacing, no substring matches), the SMTP provider

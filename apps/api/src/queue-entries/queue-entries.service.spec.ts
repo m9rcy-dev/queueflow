@@ -1,4 +1,5 @@
 import { ConflictException, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import { QueueEntriesService } from "./queue-entries.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -107,6 +108,7 @@ describe("QueueEntriesService", () => {
         { provide: QueuesService, useValue: queuesService },
         { provide: QueueEventsService, useValue: queueEvents },
         { provide: NotificationsService, useValue: notifications },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
       ],
     }).compile();
 

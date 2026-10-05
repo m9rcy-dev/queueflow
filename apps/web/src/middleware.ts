@@ -7,7 +7,6 @@ import { NextResponse, type NextRequest } from "next/server";
 // App Router's documented pattern: the framework auto-applies this nonce to
 // the inline hydration scripts it injects for RSC streaming, so we don't
 // have to thread it through every layout/page ourselves.
-const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
 
 export function middleware(request: NextRequest) {
   // Phase 12 (pnpm audit): the app never uses next/image, but Next.js
@@ -23,19 +22,30 @@ export function middleware(request: NextRequest) {
 
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const isDev = process.env.NODE_ENV === "development";
+  // The API's origin (see lib/api-url.ts): explicit when deployed; locally,
+  // port 4001 on whatever host this page was requested on — so a phone on
+  // the same Wi-Fi (http://<mac-ip>:4000) is allowed to reach <mac-ip>:4001.
+  // The Host header, not request.nextUrl: in development Next reports its own
+  // bound hostname there, not the address the browser actually used.
+  const requestHost = (request.headers.get("host") ?? "localhost").replace(/:\d+$/, "");
+  const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? `http://${requestHost}:4001`;
   const csp = `
     default-src 'self';
     script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""};
     style-src 'self' ${isDev ? "'unsafe-inline'" : `'nonce-${nonce}'`};
-    connect-src 'self' ${API_ORIGIN};
-    img-src 'self' data: ${API_ORIGIN};
+    connect-src 'self' ${apiOrigin};
+    img-src 'self' data: ${apiOrigin};
     font-src 'self';
     worker-src 'self';
     object-src 'none';
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'none';
-    upgrade-insecure-requests;
+    ${
+      // Production is HTTPS-only. Locally it would rewrite a phone's
+      // http://<mac-ip> requests to https://, which no dev server answers.
+      isDev ? "" : "upgrade-insecure-requests;"
+    }
   `
     .replace(/\s{2,}/g, " ")
     .trim();

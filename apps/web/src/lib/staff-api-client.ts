@@ -1,6 +1,5 @@
 import { StaffApiClient, type TokenStorage } from "@queueflow/api-client";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+import { apiBaseUrl } from "./api-url";
 
 const REFRESH_TOKEN_KEY = "qf_staff_refresh_token";
 const DEVICE_TRUST_TOKEN_KEY = "qf_staff_device_trust_token";
@@ -34,4 +33,4 @@ const tokenStorage: TokenStorage = {
   setDeviceTrustToken: (token) => writeLocalStorage(DEVICE_TRUST_TOKEN_KEY, token),
 };
 
-export const staffApi = new StaffApiClient({ baseUrl: API_URL, tokenStorage });
+export const staffApi = new StaffApiClient({ baseUrl: apiBaseUrl(), tokenStorage });

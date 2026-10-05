@@ -393,4 +393,39 @@ describe("Shifts & preferred staff (integration)", () => {
     expect(board.nowServing).toEqual([expect.objectContaining({ staffName: "Ace" })]);
     expect(board.next).toEqual([expect.objectContaining({ preferredStaffName: "Ace" })]);
   });
+  it("joining with an email sends the ticket link there, and later notices too (Phase 19)", async () => {
+    const owner = await signUpOwner();
+    const a = await addLocation(owner.auth, "Juliet");
+    const joined = await request(server())
+      .post(`/public/queues/${a.queueId}/entries`)
+      .send({
+        serviceId: a.serviceId,
+        customerName: "C",
+        customerPhone: "021 900 0701",
+        customerEmail: "c@example.com",
+      })
+      .expect(201);
+    const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: joined.body.id } });
+    expect(entry.contactEmail).toBe("c@example.com");
+    const sent = await prisma.notificationOutbox.findMany({
+      where: { queueEntryId: entry.id },
+      orderBy: { createdAt: "asc" },
+    });
+    const welcome = sent.find((n) => n.type === "JOINED");
+    expect(welcome).toMatchObject({ channel: "EMAIL", recipient: "c@example.com" });
+    expect(welcome!.body).toContain(`/queue/t/${joined.body.publicToken}`);
+    // First in line, so "nearly next" goes to the same email, not SMS.
+    expect(sent.find((n) => n.type === "NEARLY_NEXT")).toMatchObject({ channel: "EMAIL" });
+
+    // Without an email: no "you're in" message, notices by SMS.
+    const plain = await request(server())
+      .post(`/public/queues/${a.queueId}/entries`)
+      .send({ serviceId: a.serviceId, customerName: "D", customerPhone: "021 900 0702" })
+      .expect(201);
+    const plainSent = await prisma.notificationOutbox.findMany({
+      where: { queueEntryId: plain.body.id },
+    });
+    expect(plainSent.some((n) => n.type === "JOINED")).toBe(false);
+    expect(plainSent.every((n) => n.channel === "SMS")).toBe(true);
+  });
 });

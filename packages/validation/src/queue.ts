@@ -63,6 +63,15 @@ export const joinQueueSchema = z.object({
   idempotencyKey: z.string().trim().min(1).max(100).optional(),
   /** Phase 18: who they'd like to be served by (on shift now); omitted/null = anyone. */
   preferredStaffId: z.string().uuid().nullable().optional(),
+  /** Phase 19: optional — the ticket link (and its QR) is emailed so it isn't lost. Blank = none. */
+  customerEmail: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email()
+    .max(254)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
 });
 export type JoinQueueInput = z.infer<typeof joinQueueSchema>;
 

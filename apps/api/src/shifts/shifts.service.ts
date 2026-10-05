@@ -133,7 +133,7 @@ export class ShiftsService {
       });
       for (const entry of waiting) {
         if (!entry.customer) continue;
-        const { channel, recipient } = resolveChannel(entry.customer);
+        const { channel, recipient } = resolveChannel(entry.customer, entry.contactEmail);
         await this.notifications.enqueue(tx, {
           tenantId,
           queueEntryId: entry.id,

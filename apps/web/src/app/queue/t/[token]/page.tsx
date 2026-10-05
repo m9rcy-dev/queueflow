@@ -7,6 +7,7 @@ import type { PublicTicketSummary, QueueEntrySummary } from "@queueflow/types";
 import { publicApi } from "../../../../lib/api-client";
 import { TicketQrCode } from "../../../../components/TicketQrCode";
 import { BusinessLogo } from "../../../../components/BusinessLogo";
+import { saveVisit } from "../../../../lib/saved-visits";
 import { PoweredByQueueFlow } from "../../../../components/QueueFlowLogo";
 
 const STATUS_COPY: Record<QueueEntrySummary["status"], { title: string; tone: BadgeTone }> = {
@@ -57,6 +58,13 @@ export default function TicketPage() {
 
     return () => source.close();
   }, [token]);
+
+  // Phase 19: remember this ticket on this device (e.g. opened from the
+  // email), so the queue's poster page can bring the customer back to it.
+  const queueId = entry?.queueId;
+  useEffect(() => {
+    if (queueId) saveVisit({ kind: "ticket", token, scopeId: queueId });
+  }, [token, queueId]);
 
   useEffect(() => {
     if (!entry) {

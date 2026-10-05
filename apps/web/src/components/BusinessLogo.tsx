@@ -1,5 +1,7 @@
+"use client";
+
 /* eslint-disable @next/next/no-img-element -- next/image is deliberately unused: its optimizer route is blocked in middleware (Phase 12, a reachable critical advisory). */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+import { useApiBaseUrl } from "../lib/api-url";
 
 /**
  * The business's own logo on customer-facing pages (Phase 16). `logoPath`
@@ -22,10 +24,11 @@ export function BusinessLogo({
   /** Centered above a page heading by default; false when it sits beside the name (the TV board's header). */
   centered?: boolean;
 }) {
+  const apiUrl = useApiBaseUrl();
   if (!logoPath) return null;
   return (
     <img
-      src={`${API_URL}${logoPath}`}
+      src={`${apiUrl}${logoPath}`}
       alt={standalone ? `${name} logo` : ""}
       className={[
         centered ? "mx-auto object-contain" : "shrink-0 object-contain",

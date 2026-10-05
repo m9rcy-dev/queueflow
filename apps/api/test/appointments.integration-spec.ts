@@ -201,6 +201,59 @@ describe("Appointments (integration)", () => {
     expect(publicView.body).not.toHaveProperty("customer");
   });
 
+  it("emails the confirmation with an add-to-calendar link when an email is given (Phase 19)", async () => {
+    const biz = await setUpBookableBusiness("Booking Email");
+    const { slots } = await availability(biz.locationId, biz.serviceId);
+
+    const withEmail = await book(biz.locationId, {
+      serviceId: biz.serviceId,
+      startsAt: slots[0].startsAt,
+      customerName: "Ana",
+      customerPhone: nextPhone(),
+      customerEmail: " Ana@Example.com ",
+    }).expect(201);
+    const appointment = await prisma.appointment.findUniqueOrThrow({
+      where: { publicToken: withEmail.body.publicToken },
+    });
+    expect(appointment.contactEmail).toBe("ana@example.com");
+    const [confirmation] = await prisma.notificationOutbox.findMany({
+      where: { appointmentId: appointment.id, type: "APPOINTMENT_BOOKED" },
+    });
+    expect(confirmation).toMatchObject({ channel: "EMAIL", recipient: "ana@example.com" });
+    expect(confirmation.body).toContain("calendar.google.com/calendar/render");
+    expect(confirmation.body).toContain(`/appointment/${withEmail.body.publicToken}`);
+    // The contact email is for this booking only — it never becomes an account login.
+    const customer = await prisma.customer.findUniqueOrThrow({
+      where: { id: appointment.customerId },
+    });
+    expect(customer.email).toBeNull();
+
+    // A blank email is the same as none: SMS, no calendar link.
+    const blank = await book(biz.locationId, {
+      serviceId: biz.serviceId,
+      startsAt: slots[4].startsAt,
+      customerName: "Ben",
+      customerPhone: nextPhone(),
+      customerEmail: "",
+    }).expect(201);
+    const blankRow = await prisma.appointment.findUniqueOrThrow({
+      where: { publicToken: blank.body.publicToken },
+    });
+    const [sms] = await prisma.notificationOutbox.findMany({
+      where: { appointmentId: blankRow.id, type: "APPOINTMENT_BOOKED" },
+    });
+    expect(sms.channel).toBe("SMS");
+    expect(sms.body).not.toContain("calendar.google.com");
+
+    await book(biz.locationId, {
+      serviceId: biz.serviceId,
+      startsAt: slots[8].startsAt,
+      customerName: "Cy",
+      customerPhone: nextPhone(),
+      customerEmail: "not-an-email",
+    }).expect(400);
+  });
+
   it("serializes concurrent bookings — exactly one wins the last unit of capacity", async () => {
     const biz = await setUpBookableBusiness("Race Capacity One");
     const startsAt = await slotAt(biz.locationId, biz.serviceId, "10:00");

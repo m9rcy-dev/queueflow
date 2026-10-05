@@ -7,6 +7,8 @@
 #   scripts/dev.sh restart   (default — stop then start)
 #   scripts/dev.sh start
 #   scripts/dev.sh stop
+#   scripts/dev.sh lan       (restart for testing from a phone on the same Wi-Fi:
+#                             email links use this Mac's IP instead of localhost)
 
 set -euo pipefail
 
@@ -39,7 +41,8 @@ stop() {
 start() {
   rm -rf "$ROOT_DIR/apps/web/.next"
   echo "Starting API on :$API_PORT ..."
-  (cd "$ROOT_DIR/apps/api" && PORT="$API_PORT" pnpm run start:dev >"$API_LOG" 2>&1 &)
+  # WEB_APP_URL (email links) is only overridden in `lan` mode; otherwise apps/api/.env decides.
+  (cd "$ROOT_DIR/apps/api" && env PORT="$API_PORT" ${LAN_WEB_URL:+WEB_APP_URL="$LAN_WEB_URL"} pnpm run start:dev >"$API_LOG" 2>&1 &)
   echo "Starting web on :$WEB_PORT ..."
   (cd "$ROOT_DIR/apps/web" && PORT="$WEB_PORT" pnpm run dev >"$WEB_LOG" 2>&1 &)
   echo "Logs: $API_LOG , $WEB_LOG"
@@ -49,5 +52,14 @@ case "${1:-restart}" in
   start) start ;;
   stop) stop ;;
   restart) stop; start ;;
-  *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+  lan)
+    LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+    if [ -z "$LAN_IP" ]; then echo "Couldn't find this Mac's Wi-Fi IP address."; exit 1; fi
+    LAN_WEB_URL="http://${LAN_IP}:${WEB_PORT}"
+    stop; start
+    echo ""
+    echo "On your phone (same Wi-Fi), open: ${LAN_WEB_URL}"
+    echo "Email links now point there too. QR codes printed from that address work on the phone."
+    ;;
+  *) echo "Usage: $0 {start|stop|restart|lan}"; exit 1 ;;
 esac

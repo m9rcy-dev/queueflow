@@ -91,6 +91,15 @@ export const bookAppointmentSchema = z.object({
   customerName: z.string().trim().min(1).max(200),
   customerPhone: z.string().trim().min(1).max(30),
   idempotencyKey: z.string().trim().min(1).max(100).optional(),
+  /** Phase 19: where the confirmation (with an add-to-calendar link) and reminders go. Blank = SMS only. */
+  customerEmail: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email()
+    .max(254)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
 });
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
 

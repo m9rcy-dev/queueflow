@@ -14,7 +14,7 @@ import { CloseIcon, MenuIcon } from "./icons";
 import { PoweredByQueueFlow } from "./QueueFlowLogo";
 
 /* eslint-disable @next/next/no-img-element -- next/image's optimizer route is blocked (Phase 12); see BusinessLogo. */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+import { useApiBaseUrl } from "../lib/api-url";
 
 export interface ShellNavItem {
   href: string;
@@ -69,6 +69,7 @@ export function Shell({
   children: ReactNode;
 }) {
   const pathname = usePathname();
+  const apiUrl = useApiBaseUrl();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -119,7 +120,7 @@ export function Shell({
           <span className="flex min-w-0 items-center gap-2">
             {brandLogoPath && (
               <img
-                src={`${API_URL}${brandLogoPath}`}
+                src={`${apiUrl}${brandLogoPath}`}
                 alt=""
                 className="h-8 max-w-[5rem] shrink-0 object-contain"
               />
@@ -231,7 +232,7 @@ export function Shell({
           <span className="flex min-w-0 items-center gap-2 px-3">
             {brandLogoPath && (
               <img
-                src={`${API_URL}${brandLogoPath}`}
+                src={`${apiUrl}${brandLogoPath}`}
                 alt=""
                 className="h-6 max-w-[4rem] shrink-0 object-contain"
               />

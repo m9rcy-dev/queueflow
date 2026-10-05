@@ -550,7 +550,8 @@ Lock CORS to the web app's origin (it still allows any origin); a `render.yaml` 
 `prisma migrate deploy`, start, health check); documented Vercel settings for the monorepo web app;
 a deploy runbook (Neon, Render, Vercel, Pingram sender verification, every environment variable
 including `PLATFORM_ADMIN_EMAILS`, DNS
-for `q.m9rcy.dev`, smoke-test checklist). Hosting per ADR-009 unless the user decides otherwise. A
+for `q.m9rcy.dev`, smoke-test checklist). When locking CORS, keep local phone testing working:
+allow any origin in development only (Phase 19's `scripts/dev.sh lan`). Hosting per ADR-009 unless the user decides otherwise. A
 business sign-up screen (today only the API offers it) belongs here at the latest.
 
 ---
@@ -588,6 +589,6 @@ start from nothing:
 
 ## Count, for reference
 
-**21 phases in the active roadmap (0–20)**: 0–17 done; 18–20 planned. Plus 4
-explicitly deferred workstreams (analytics trends, platform admin, billing, flash-crowd/waiting-room
-queuing) tracked but not scheduled.
+**21 phases in the active roadmap (0–20)**: 0–19 done; 20 (first deploy) planned. Plus
+deferred workstreams tracked but not scheduled: analytics trends, billing, flash-crowd/waiting-room
+queuing, and platform admin _editing_ (the read-only console and onboarding shipped in Phase 19).

@@ -31,7 +31,7 @@ import { normalizePhoneToE164 } from "../common/phone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
 import { addDays, dayOfWeekOf, formatLocalDate, localTimeToUtc } from "../common/timezone.util";
 import { formatLocalMinutes, generateSlots, type GeneratedSlot } from "./slot-engine";
-import { appointmentManageUrl } from "./appointment-links";
+import { appointmentManageUrl, googleCalendarUrl } from "./appointment-links";
 import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 const MINUTE_MS = 60_000;
@@ -325,6 +325,7 @@ export class AppointmentsService {
             localDate: dateOnly(date),
             idempotencyKey: input.idempotencyKey ?? null,
             bookedByStaffId,
+            contactEmail: input.customerEmail ?? null,
           },
         });
         // D-12: the booking's check-in code, minted with it — secret, like
@@ -342,7 +343,8 @@ export class AppointmentsService {
           include: PUBLIC_INCLUDE,
         });
 
-        const { channel, recipient } = resolveChannel(customer);
+        const { channel, recipient } = resolveChannel(customer, created.contactEmail);
+        const manageUrl = appointmentManageUrl(this.config, created.publicToken);
         await this.notifications.enqueue(tx, {
           tenantId,
           appointmentId: created.id,
@@ -353,7 +355,18 @@ export class AppointmentsService {
             businessName: context.tenant.name,
             serviceName: context.service.name,
             when: formatAppointmentTime(created.startsAt, context.location.timezone),
-            manageUrl: appointmentManageUrl(this.config, created.publicToken),
+            manageUrl,
+            // Phase 19: an email gets a one-tap "add to calendar" link.
+            calendarUrl:
+              channel === "EMAIL"
+                ? googleCalendarUrl({
+                    title: `${context.service.name} — ${context.tenant.name}`,
+                    startsAt: created.startsAt,
+                    endsAt: created.endsAt,
+                    details: `Check in or cancel: ${manageUrl}`,
+                    location: `${context.tenant.name}, ${context.location.name}`,
+                  })
+                : undefined,
           }),
         });
         return withRelations;
@@ -553,7 +566,7 @@ export class AppointmentsService {
         where: { id: appointmentId },
         include: { customer: true, service: true, location: true, tenant: true },
       });
-      const { channel, recipient } = resolveChannel(appointment.customer);
+      const { channel, recipient } = resolveChannel(appointment.customer, appointment.contactEmail);
       await this.notifications.enqueue(tx, {
         tenantId: appointment.tenantId,
         appointmentId,

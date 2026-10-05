@@ -102,7 +102,7 @@ export class AppointmentJobsService {
         now,
       );
       if (offset === null) continue;
-      const { channel, recipient } = resolveChannel(appointment.customer);
+      const { channel, recipient } = resolveChannel(appointment.customer, appointment.contactEmail);
       rows.push({
         tenantId: appointment.tenantId,
         appointmentId: appointment.id,

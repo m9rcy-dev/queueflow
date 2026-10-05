@@ -31,6 +31,9 @@ pnpm --filter @queueflow/api run db:migrate
 pnpm dev                      # starts both apps/api and apps/web
 ```
 
+Or run both in the background with `scripts/dev.sh` (`restart`, `stop`, `lan`). Logs go to
+`.dev-logs/api.log` and `.dev-logs/web.log`.
+
 - API: http://localhost:4001 (health check at `/health`)
 - Web: http://localhost:4000
 - Settings live in **`apps/api/.env`**; a root `.env` is not read. The API reads it only at
@@ -40,6 +43,84 @@ pnpm dev                      # starts both apps/api and apps/web
   notifications.
 - Platform admin: http://localhost:4000/platform. Put your email in `PLATFORM_ADMIN_EMAILS` to
   sign in.
+
+### Testing from a phone
+
+Run `scripts/dev.sh lan`. It restarts both apps and prints the address to open on a phone on the
+same Wi-Fi, e.g. `http://192.168.1.20:4000`. In development the web app talks to the API on port
+4001 of whatever address it was opened from, so nothing else needs changing. `lan` mode also
+points email links at that address.
+
+QR codes encode the address they were created from. Open the QR Codes page (or a poster's Print
+view) from the phone address, not `localhost`, before scanning. Allow incoming connections for
+`node` if macOS asks.
+
+## Entry points
+
+Every sign-in is passwordless: enter your email and type the 6-digit code that's emailed to you
+(in Mailpit when running locally), or a code from your authenticator app if you've set one up.
+`<code>` and `<token>` are the parts of the links that QueueFlow generates.
+
+### QueueFlow platform admin (root)
+
+| Page                     | What it's for                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| `/platform`              | Sign in, if your email is in `PLATFORM_ADMIN_EMAILS`. Lists every business and its services   |
+| `/platform/onboard`      | Onboard a business: its name, the owner, Appointments on/off. The owner gets a welcome email  |
+| `/platform/tenants/<id>` | One business: the services it has switched on, locations, service list, team, 30-day activity |
+
+### Business owner and admin
+
+Sign in at **`/admin/login`**. Their menu has Queues, Appointments (if switched on), Hours, QR
+Codes, Locations, Staff and Settings. Account, Set up PIN and Log out are in the profile menu at
+the bottom.
+
+- **A new business:** the Queues page shows a **Get started** checklist (location, services,
+  queue, QR poster, logo).
+- **QR Codes:** customer posters, TV board links, guest cards and the customer sign-up poster.
+- **Staff:** invite people. An invitee gets an email linking to **`/invite/<token>`**.
+- **Settings:** the logo, Appointments on/off, appointment rules.
+- **Hours:** everyone's clocked hours, with CSV export and fixes for forgotten clock-outs.
+
+**One person in several businesses:** sign in once and choose the business. On the login page,
+**Sign in as someone else** switches people.
+
+### Manager (runs one location)
+
+Same sign-in: **`/admin/login`**. Their menu has Queues, Appointments, Hours, QR Codes, Location
+(their own) and Staff. They manage their location's details, hours, services, queues, codes and
+Staff members, and see and fix hours there.
+
+### Staff (works at one location)
+
+Same sign-in: **`/admin/login`**. Their menu has Queues, Appointments and Hours (their own).
+
+- **The queue dashboard** (`/admin/queues/<id>`): Clock in / Clock out, Call Next, Start,
+  Complete, hand over, add a walk-in, and Scan for the counter scanner.
+- **Account:** "Name customers see" sets the name shown on the TV board and on the join page.
+- **A shared counter tablet:** once someone chooses "Trust this device" on the dashboard, staff
+  switch in with their PIN at `/admin/login`.
+
+### Customer
+
+Customers don't need an account for the queue or for booking.
+
+| Page                   | How they get there                      | What it's for                                                               |
+| ---------------------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| `/q/<code>`            | Scanning the business's poster          | Join the queue (with an optional email for the ticket link), or book        |
+| `/q/<code>/book`       | "Book an appointment" on the page above | Pick a service and time. The confirmation email has an add-to-calendar link |
+| `/queue/t/<token>`     | After joining, or from the email        | The live ticket: place in line, wait estimate, QR code                      |
+| `/appointment/<token>` | After booking, or from the email        | The booking: add to calendar, check in, its QR code, cancel                 |
+| `/c/<code>`            | Scanning the business's sign-up poster  | Create an account or sign in                                                |
+| `/c/portal`            | After signing in                        | Their tickets and visits, appointments, QR codes, account                   |
+
+Going back to a poster's page on the same phone offers "You're already in this queue" or "You
+have a booking here" with a link back to it.
+
+### TV board
+
+**`/display/<code>`**, opened on the screen at the location (the link is on the QR Codes page). It
+shows Now serving (with staff names), the next three in line large, and the rest of the queue.
 
 ## Quality gate
 

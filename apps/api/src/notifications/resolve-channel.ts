@@ -1,11 +1,20 @@
 import type { NotificationChannel } from "@prisma/client";
 
-/** Email if the customer has one on file (account holders, Phase 9), SMS otherwise (G-32/ADR-008) — every anonymous walk-in or booker resolves to SMS by construction. Shared by queue and appointment notifications. */
-export function resolveChannel(customer: { phoneE164: string; email: string | null }): {
+/**
+ * Where a customer's notification goes (G-32/ADR-008): the email they gave
+ * for this visit (Phase 19 — `contactEmail` on the ticket or booking), else
+ * their account email (Phase 9), else SMS to their phone. Shared by queue
+ * and appointment notifications.
+ */
+export function resolveChannel(
+  customer: { phoneE164: string; email: string | null },
+  contactEmail: string | null = null,
+): {
   channel: NotificationChannel;
   recipient: string;
 } {
-  return customer.email
-    ? { channel: "EMAIL", recipient: customer.email }
+  const email = contactEmail ?? customer.email;
+  return email
+    ? { channel: "EMAIL", recipient: email }
     : { channel: "SMS", recipient: customer.phoneE164 };
 }

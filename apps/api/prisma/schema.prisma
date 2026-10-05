@@ -548,6 +548,10 @@ model QueueEntry {
   // them); it keeps its place in line meanwhile. Cleared automatically when
   // that person clocks out.
   preferredStaffId String?
+  // Phase 19: an email the customer gave when joining, so the ticket (and its
+  // QR) can be emailed and found again. A contact address for this visit
+  // only — not an account login (Customer.email is that).
+  contactEmail     String?
 
   // Opaque, high-entropy (G-39) — the anonymous customer's only way back to
   // their own ticket (G-45). Never a sequential/guessable ID.
@@ -647,6 +651,9 @@ enum NotificationType {
   APPOINTMENT_CANCELLED
   // Phase 14 (§75) — one per (appointment, reminderOffsetMinutes).
   APPOINTMENT_REMINDER
+  // Phase 19 — "you're in the queue", with the ticket link (only when the
+  // customer gave an email).
+  JOINED
   // Phase 18 — the customer's preferred staff member finished their shift;
   // they're still in line, now with whoever's next free.
   PREFERRED_STAFF_UNAVAILABLE
@@ -847,6 +854,10 @@ model Appointment {
 
   // G-21 pattern — unique only when supplied.
   idempotencyKey String?
+
+  // Phase 19: where the confirmation (with its calendar link) and reminders
+  // go — given when booking. A contact address, not an account login.
+  contactEmail String?
 
   // Audit (D-03a): set when staff booked it on the customer's behalf (a
   // phone booking) rather than the customer booking it themselves.

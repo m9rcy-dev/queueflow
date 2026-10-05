@@ -9,6 +9,7 @@ import type { PublicAppointmentSummary } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { formatDateTimeIn } from "../../../lib/appointment-format";
 import { TicketQrCode } from "../../../components/TicketQrCode";
+import { AddToCalendar } from "../../../components/AddToCalendar";
 import { BusinessLogo } from "../../../components/BusinessLogo";
 import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
@@ -121,6 +122,23 @@ export default function AppointmentPage() {
           <p className="text-sm text-text-secondary">{appointment.location.address}</p>
         )}
       </Card>
+
+      {/* Phase 19 — keep it: in the customer's own calendar, linking back here. */}
+      {appointment.status === "BOOKED" && (
+        <AddToCalendar
+          title={`${appointment.service.name} — ${appointment.tenant.name}`}
+          startsAt={appointment.startsAt}
+          endsAt={appointment.endsAt}
+          location={[
+            appointment.tenant.name,
+            appointment.location.name,
+            appointment.location.address,
+          ]
+            .filter(Boolean)
+            .join(", ")}
+          token={token}
+        />
+      )}
 
       {/* Phase 14 — check in when you arrive: tap here, or show the code at the counter (D-12). */}
       {appointment.canCheckIn && (

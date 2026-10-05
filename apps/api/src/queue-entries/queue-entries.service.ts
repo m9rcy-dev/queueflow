@@ -1,4 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ticketUrl } from "../appointments/appointment-links";
 import { Prisma, type NotificationChannel, type NotificationType } from "@prisma/client";
 import type {
   CustomerActiveEntry,
@@ -18,6 +20,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import {
   buildApproachingMessage,
   buildCalledMessage,
+  buildJoinedMessage,
   buildNearlyNextMessage,
   buildRecalledMessage,
 } from "../notifications/notification-copy";
@@ -126,6 +129,7 @@ export class QueueEntriesService {
     private readonly queuesService: QueuesService,
     private readonly queueEvents: QueueEventsService,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -244,8 +248,29 @@ export class QueueEntriesService {
           serviceDate,
           idempotencyKey: input.idempotencyKey ?? null,
           preferredStaffId: input.preferredStaffId ?? null,
+          contactEmail: input.customerEmail ?? null,
         },
       });
+      // Phase 19: they gave an email — send the ticket link so the ticket
+      // (and its QR) can't be lost to a closed tab.
+      if (created.contactEmail) {
+        const tenant = await tx.tenant.findUniqueOrThrow({
+          where: { id: queue.tenantId },
+          select: { name: true },
+        });
+        await this.notifications.enqueue(tx, {
+          tenantId: queue.tenantId,
+          queueEntryId: created.id,
+          type: "JOINED",
+          channel: "EMAIL",
+          recipient: created.contactEmail,
+          body: buildJoinedMessage({
+            businessName: tenant.name,
+            ticketNumber: created.ticketNumber,
+            ticketUrl: ticketUrl(this.config, created.publicToken),
+          }),
+        });
+      }
       await this.evaluateWaitingThresholds(tx, queueId);
       return created;
     });
@@ -1193,7 +1218,7 @@ export class QueueEntriesService {
         .filter((other) => competesWith(other, entry)).length;
       if (!entry.customer) continue; // no contact details to notify — shouldn't happen via the join flow, but never crash on it
 
-      const { channel, recipient } = resolveChannel(entry.customer);
+      const { channel, recipient } = resolveChannel(entry.customer, entry.contactEmail);
 
       if (peopleAhead <= queue.nearlyNextThreshold && !entry.nearlyNextNotifiedAt) {
         candidates.push({
@@ -1269,7 +1294,7 @@ export class QueueEntriesService {
       },
     });
     if (!entry.customer) return;
-    const { channel, recipient } = resolveChannel(entry.customer);
+    const { channel, recipient } = resolveChannel(entry.customer, entry.contactEmail);
 
     await tx.queueEntry.update({
       where: { id: entryId },
@@ -1307,7 +1332,7 @@ export class QueueEntriesService {
       },
     });
     if (!entry.customer) return;
-    const { channel, recipient } = resolveChannel(entry.customer);
+    const { channel, recipient } = resolveChannel(entry.customer, entry.contactEmail);
 
     await this.notifications.enqueue(tx, {
       tenantId: entry.tenantId,

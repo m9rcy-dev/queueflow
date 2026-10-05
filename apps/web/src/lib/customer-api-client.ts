@@ -1,6 +1,5 @@
 import { CustomerApiClient, type CustomerTokenStorage } from "@queueflow/api-client";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+import { apiBaseUrl } from "./api-url";
 
 const REFRESH_TOKEN_KEY = "qf_customer_refresh_token";
 
@@ -30,4 +29,4 @@ const tokenStorage: CustomerTokenStorage = {
   setRefreshToken: (token) => writeLocalStorage(REFRESH_TOKEN_KEY, token),
 };
 
-export const customerApi = new CustomerApiClient({ baseUrl: API_URL, tokenStorage });
+export const customerApi = new CustomerApiClient({ baseUrl: apiBaseUrl(), tokenStorage });

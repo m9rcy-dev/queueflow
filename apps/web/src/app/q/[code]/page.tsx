@@ -8,6 +8,8 @@ import { ApiError } from "@queueflow/api-client";
 import type { QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
+import { SavedVisitBanner } from "../../../components/SavedVisitBanner";
+import { saveVisit } from "../../../lib/saved-visits";
 import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
 /**
@@ -28,6 +30,8 @@ export default function CodeLandingPage() {
   const [serviceId, setServiceId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  // Phase 19: optional — the ticket link is emailed so it can't be lost.
+  const [customerEmail, setCustomerEmail] = useState("");
   // Phase 18: "" = anyone, else a tenantUserId of someone on shift now.
   const [preferredStaffId, setPreferredStaffId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -66,7 +70,9 @@ export default function CodeLandingPage() {
         customerPhone,
         idempotencyKey,
         preferredStaffId: preferredStaffId || null,
+        customerEmail: customerEmail.trim() || undefined,
       });
+      saveVisit({ kind: "ticket", token: entry.publicToken, scopeId: resolution.queue.id });
       router.push(`/queue/t/${entry.publicToken}`);
     } catch (err) {
       setSubmitError(
@@ -125,6 +131,8 @@ export default function CodeLandingPage() {
         <h1 className="text-2xl font-semibold text-text-primary">{resolution.tenant.name}</h1>
         <p className="text-text-secondary">{resolution.location.name}</p>
       </div>
+
+      <SavedVisitBanner kind="ticket" scopeId={resolution.queue.id} />
 
       <Card className="flex flex-col gap-5">
         <h2 className="text-lg font-medium text-text-primary">Join the Queue</h2>
@@ -213,6 +221,17 @@ export default function CodeLandingPage() {
             autoComplete="tel"
             placeholder="021 123 4567"
           />
+          <Input
+            label="Email (optional)"
+            type="email"
+            value={customerEmail}
+            onChange={(e) => setCustomerEmail(e.target.value)}
+            autoComplete="email"
+            placeholder="you@example.com"
+          />
+          <p className="-mt-2 text-xs text-text-secondary">
+            We&apos;ll email your ticket link, so you can get back to it (and your QR code) anytime.
+          </p>
 
           {submitError && <p className="text-sm text-red-600">{submitError}</p>}
 

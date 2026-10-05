@@ -57,8 +57,22 @@ export function buildAppointmentBookedMessage(params: {
   serviceName: string;
   when: string;
   manageUrl: string;
+  /** Phase 19 — email only (an SMS stays short): add it to Google Calendar in one tap. */
+  calendarUrl?: string;
 }): string {
-  return `${params.businessName}: your ${params.serviceName} appointment is booked for ${params.when}. View or cancel: ${params.manageUrl}`;
+  const base = `${params.businessName}: your ${params.serviceName} appointment is booked for ${params.when}. View, check in or cancel: ${params.manageUrl}`;
+  return params.calendarUrl
+    ? `${base}\n\nAdd it to Google Calendar: ${params.calendarUrl}\n(Apple or Outlook: use "Add to calendar" on the page above.)`
+    : base;
+}
+
+/** Phase 19 — "you're in the queue", sent only when the customer gave an email; the link keeps their ticket and QR. */
+export function buildJoinedMessage(params: {
+  businessName: string;
+  ticketNumber: number;
+  ticketUrl: string;
+}): string {
+  return `${params.businessName}: you're in the queue — ticket #${params.ticketNumber}. Watch your place and show your QR code here: ${params.ticketUrl}`;
 }
 
 export function buildAppointmentCancelledMessage(params: {
@@ -97,6 +111,7 @@ const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   APPOINTMENT_CANCELLED: "Your appointment has been cancelled",
   APPOINTMENT_REMINDER: "Reminder: your upcoming appointment",
   PREFERRED_STAFF_UNAVAILABLE: "A change to your place in line",
+  JOINED: "You're in the queue",
 };
 
 /** Only meaningful for the EMAIL channel — SMS has no subject line. */

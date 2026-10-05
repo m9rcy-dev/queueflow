@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { createPlatformApiClient } from "@queueflow/api-client";
+import { apiBaseUrl } from "./api-url";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
 const KEY = "queueflow.platformToken";
 
-export const platformApi = createPlatformApiClient(API_URL);
+export const platformApi = createPlatformApiClient(apiBaseUrl());
 
 /**
  * The platform admin's token (Phase 19, ADR-018) lives in sessionStorage:

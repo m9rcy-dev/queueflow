@@ -184,12 +184,16 @@ function ordinal(n: number): string {
 }
 
 /**
- * The line, in call order (Phase 17). People waiting watch this to find
- * themselves — especially anyone without notifications — so every ticket
- * is large, labelled with its place, and the very next one stands out.
+ * The line, in call order (Phase 17; Phase 19 made the next three the big
+ * ones). People waiting watch this to find themselves — especially anyone
+ * without notifications — so whoever is about to be called reads from
+ * across the room: #1 is the largest, #2 and #3 large beside each other,
+ * and the rest of the line smaller below.
  */
 function Waiting({ next, waitingCount }: { next: DisplaySnapshot["next"]; waitingCount: number }) {
-  const [first, ...rest] = next;
+  const [first, ...others] = next;
+  const upNext = others.slice(0, 2);
+  const rest = others.slice(2);
   const notShown = waitingCount - next.length;
   return (
     <section className="flex flex-col rounded-2xl bg-white/5 p-[2vw]">
@@ -206,12 +210,12 @@ function Waiting({ next, waitingCount }: { next: DisplaySnapshot["next"]; waitin
         <p className="m-auto text-[clamp(1.5rem,2.5vw,3rem)] text-white/40">No one waiting</p>
       ) : (
         <div className="mt-[2vh] flex flex-1 flex-col gap-[1.5vh]">
-          <div className="flex items-center justify-between rounded-xl bg-sky-400/20 px-[2vw] py-[1.5vh] ring-2 ring-sky-300/60">
-            <span className="text-[clamp(1.25rem,2.2vw,2.75rem)] font-semibold uppercase text-sky-200">
+          <div className="flex items-center justify-between rounded-xl bg-sky-400/25 px-[2vw] py-[1.5vh] ring-4 ring-sky-300/70">
+            <span className="text-[clamp(1.5rem,2.6vw,3.25rem)] font-bold uppercase text-sky-200">
               Next
             </span>
             <span className="flex flex-col items-end">
-              <span className="text-[clamp(3rem,7vw,9rem)] font-bold leading-none tabular-nums">
+              <span className="text-[clamp(4rem,9vw,12rem)] font-bold leading-none tabular-nums">
                 #{first.ticketNumber}
               </span>
               {first.preferredStaffName && (
@@ -221,22 +225,46 @@ function Waiting({ next, waitingCount }: { next: DisplaySnapshot["next"]; waitin
               )}
             </span>
           </div>
+
+          {upNext.length > 0 && (
+            <div className="grid grid-cols-2 gap-[1.5vh]">
+              {upNext.map(({ ticketNumber, preferredStaffName }, index) => (
+                <div
+                  key={ticketNumber}
+                  className="flex flex-col items-center rounded-xl bg-sky-400/10 px-[1.5vw] py-[1.2vh] ring-2 ring-sky-300/30"
+                >
+                  <span className="text-[clamp(1rem,1.5vw,1.9rem)] font-semibold uppercase text-sky-200/80">
+                    {ordinal(index + 2)}
+                  </span>
+                  <span className="text-[clamp(3rem,6vw,8rem)] font-bold leading-none tabular-nums">
+                    #{ticketNumber}
+                  </span>
+                  {preferredStaffName && (
+                    <span className="text-[clamp(0.9rem,1.4vw,1.75rem)] text-sky-100/90">
+                      for {preferredStaffName}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {rest.length > 0 && (
-            <ol className="grid grid-cols-2 gap-[1.2vh] sm:grid-cols-3 xl:grid-cols-4">
+            <ol className="grid grid-cols-3 gap-[1vh] sm:grid-cols-4 xl:grid-cols-5">
               {rest.map(({ ticketNumber, preferredStaffName }, index) => (
                 <li
                   key={ticketNumber}
-                  className="flex flex-col items-start rounded-xl bg-white/10 px-[1.2vw] py-[0.8vh]"
+                  className="flex flex-col items-center rounded-lg bg-white/10 px-[0.8vw] py-[0.6vh]"
                 >
-                  <span className="text-[clamp(0.8rem,1.1vw,1.4rem)] leading-tight text-white/50">
-                    {ordinal(index + 2)}
+                  <span className="text-[clamp(0.7rem,0.9vw,1.1rem)] leading-tight text-white/50">
+                    {ordinal(index + 4)}
                   </span>
-                  <span className="self-center text-[clamp(2rem,4vw,5.5rem)] font-bold leading-tight tabular-nums">
+                  <span className="text-[clamp(1.4rem,2.6vw,3.5rem)] font-bold leading-tight tabular-nums">
                     #{ticketNumber}
                   </span>
                   {/* Phase 18: waiting for one person — they keep their place, others may go first. */}
                   {preferredStaffName && (
-                    <span className="self-center text-[clamp(0.8rem,1.2vw,1.5rem)] text-sky-200">
+                    <span className="text-[clamp(0.7rem,0.9vw,1.1rem)] text-sky-200">
                       for {preferredStaffName}
                     </span>
                   )}

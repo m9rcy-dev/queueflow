@@ -8,6 +8,8 @@ import type { AppointmentSlot, QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../../lib/api-client";
 import { addDaysTo, formatLocalDate } from "../../../../lib/appointment-format";
 import { BusinessLogo } from "../../../../components/BusinessLogo";
+import { SavedVisitBanner } from "../../../../components/SavedVisitBanner";
+import { saveVisit } from "../../../../lib/saved-visits";
 import { PoweredByQueueFlow } from "../../../../components/QueueFlowLogo";
 
 const DAYS_SHOWN = 14;
@@ -47,6 +49,8 @@ export default function BookAppointmentPage() {
   const [startsAt, setStartsAt] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  // Phase 19: the confirmation (with an add-to-calendar link) and reminders go here.
+  const [customerEmail, setCustomerEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Same G-21 rule as joining: the browser makes a retried booking idempotent.
@@ -91,6 +95,12 @@ export default function BookAppointmentPage() {
         customerName,
         customerPhone,
         idempotencyKey,
+        customerEmail: customerEmail.trim(),
+      });
+      saveVisit({
+        kind: "appointment",
+        token: booking.publicToken,
+        scopeId: resolution.location.id,
       });
       router.push(`/appointment/${booking.publicToken}`);
     } catch (err) {
@@ -131,6 +141,8 @@ export default function BookAppointmentPage() {
         <h1 className="text-2xl font-semibold text-text-primary">{resolution.tenant.name}</h1>
         <p className="text-text-secondary">{resolution.location.name}</p>
       </div>
+
+      <SavedVisitBanner kind="appointment" scopeId={resolution.location.id} />
 
       <Card className="flex flex-col gap-5">
         <h2 className="text-lg font-medium text-text-primary">Book an appointment</h2>
@@ -235,6 +247,19 @@ export default function BookAppointmentPage() {
             autoComplete="tel"
             placeholder="021 123 4567"
           />
+          <Input
+            label="Email"
+            type="email"
+            value={customerEmail}
+            onChange={(e) => setCustomerEmail(e.target.value)}
+            required
+            autoComplete="email"
+            placeholder="you@example.com"
+          />
+          <p className="-mt-3 text-xs text-text-secondary">
+            Your confirmation goes here, with a link to add it to your calendar and to check in or
+            cancel.
+          </p>
 
           {submitError && (
             <p role="alert" className="text-sm text-red-600">
