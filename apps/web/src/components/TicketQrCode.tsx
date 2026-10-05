@@ -44,6 +44,12 @@ export function TicketQrCode({
 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- a generated data URL, not an optimizable remote image
-    <img src={dataUrl} alt={alt} width={size} height={size} className="rounded-md" />
+    <img
+      src={dataUrl}
+      alt={alt}
+      width={size}
+      height={size}
+      className="h-auto max-w-full rounded-md"
+    />
   );
 }

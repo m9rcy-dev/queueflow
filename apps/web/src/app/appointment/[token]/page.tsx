@@ -8,7 +8,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { PublicAppointmentSummary } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { formatDateTimeIn } from "../../../lib/appointment-format";
-import { TicketQrCode } from "../../../components/TicketQrCode";
+import { CounterQrCode } from "../../../components/CounterQrCode";
 import { AddToCalendar } from "../../../components/AddToCalendar";
 import { BusinessLogo } from "../../../components/BusinessLogo";
 import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
@@ -157,7 +157,7 @@ export default function AppointmentPage() {
       {appointment.checkInCode && (
         <Card className="flex flex-col items-center gap-2 text-center">
           <p className="text-sm text-text-secondary">Or scan this at the counter when you arrive</p>
-          <TicketQrCode url={appointment.checkInCode} />
+          <CounterQrCode code={appointment.checkInCode} alt="Your check-in code" />
         </Card>
       )}
       {appointment.queueTicketToken && (

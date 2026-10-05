@@ -6,7 +6,7 @@ import type { CustomerUpcomingAppointment } from "@queueflow/types";
 import { customerApi } from "../../../../lib/customer-api-client";
 import { useCustomerSession } from "../../../../lib/use-customer-session";
 import { CustomerShell } from "../../../../components/CustomerShell";
-import { TicketQrCode } from "../../../../components/TicketQrCode";
+import { CounterQrCode } from "../../../../components/CounterQrCode";
 import { formatDateTimeIn } from "../../../../lib/appointment-format";
 
 /**
@@ -45,7 +45,7 @@ export default function CustomerCodesPage() {
         <p className="text-sm text-text-secondary">
           Show this at the counter scanner to join the queue straight away.
         </p>
-        <TicketQrCode url={summary.identityCode} alt="Your personal code" />
+        <CounterQrCode code={summary.identityCode} alt="Your personal code" />
         <Button
           variant="secondary"
           disabled={regenerating}
@@ -73,8 +73,8 @@ export default function CustomerCodesPage() {
             {appointment.service.name},{" "}
             {formatDateTimeIn(appointment.startsAt, appointment.timezone)}
           </p>
-          <TicketQrCode
-            url={appointment.checkInCode!}
+          <CounterQrCode
+            code={appointment.checkInCode!}
             alt={`Check-in code for ${appointment.service.name}`}
           />
           <p className="text-xs text-text-secondary">Scan it at the counter when you arrive.</p>
