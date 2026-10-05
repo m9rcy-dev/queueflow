@@ -190,6 +190,7 @@ export class CodesService {
       return {
         contextType: "QUEUE",
         tenant: {
+          id: code.queue.tenantId,
           name: code.queue.tenant.name,
           logoPath: tenantLogoPath(code.queue.tenantId, code.queue.tenant.logo),
         },

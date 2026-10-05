@@ -32,12 +32,15 @@ export default function CustomerAppointmentsPage() {
   }
 
   return (
-    <CustomerShell summary={summary} title="Appointments">
+    <CustomerShell summary={summary} title="Bookings">
       {appointments.length === 0 ? (
         <Card>
           <p className="text-text-secondary">
-            No upcoming appointments. To book, scan the QR poster at {summary.tenant.name} and
-            choose &ldquo;Book an appointment&rdquo;.
+            No upcoming bookings.{" "}
+            <Link href="/c/portal" className="text-primary underline">
+              Book one from Home
+            </Link>
+            .
           </p>
         </Card>
       ) : (

@@ -331,6 +331,7 @@ describe("CodesService", () => {
           id: "queue-1",
           name: "Main Queue",
           status: "ACTIVE",
+          tenantId: "tenant-1",
           locationId: "loc-1",
           location: { id: "loc-1", name: "Christchurch" },
           tenant: { name: "Joe's Barbers", appointmentEnabled: false },
@@ -361,7 +362,7 @@ describe("CodesService", () => {
 
       expect(result).toEqual({
         contextType: "QUEUE",
-        tenant: { name: "Joe's Barbers", logoPath: null },
+        tenant: { id: "tenant-1", name: "Joe's Barbers", logoPath: null },
         location: { id: "loc-1", name: "Christchurch" },
         queue: { id: "queue-1", name: "Main Queue", status: "ACTIVE" },
         capabilities: ["JOIN_QUEUE"],

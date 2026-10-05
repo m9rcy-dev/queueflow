@@ -40,8 +40,8 @@ export interface GuestCardSummary {
 /** What a customer's phone sees immediately after scanning/opening a QUEUE code — deliberately minimal (plan §9's landing page). */
 export interface QueueCodeResolution {
   contextType: "QUEUE";
-  /** logoPath: Phase 16 business logo (API-relative), or null. */
-  tenant: { name: string; logoPath: string | null };
+  /** logoPath: Phase 16 business logo (API-relative), or null. `id` (Phase 19): to tell whether a signed-in customer belongs to this business. */
+  tenant: { id: string; name: string; logoPath: string | null };
   location: { id: string; name: string };
   queue: { id: string; name: string; status: "ACTIVE" | "PAUSED" | "CLOSED" };
   /** Phase 18: staff on shift at this location now — the join form's "who would you like?" choices. */

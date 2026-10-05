@@ -72,6 +72,7 @@ describe("NotificationsService", () => {
           channel: "SMS",
           recipient: "+64211234567",
           body: "It's your turn!",
+          htmlBody: null, // SMS — never HTML (Phase 19)
         },
       });
     });

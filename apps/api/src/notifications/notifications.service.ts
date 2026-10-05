@@ -14,6 +14,8 @@ export type EnqueueNotificationParams = NotificationSubject & {
   channel: NotificationChannel;
   recipient: string;
   body: string;
+  /** Phase 19: the email's HTML version (a QR code image); ignored for SMS. */
+  htmlBody?: string | null;
 };
 
 const PROCESS_BATCH_LIMIT = 50;
@@ -45,6 +47,7 @@ export class NotificationsService {
         channel: params.channel,
         recipient: params.recipient,
         body: params.body,
+        htmlBody: params.channel === "EMAIL" ? (params.htmlBody ?? null) : null,
       },
     });
   }
@@ -82,6 +85,7 @@ export class NotificationsService {
             to: row.recipient,
             subject: buildEmailSubject(row.type),
             body: row.body,
+            html: row.htmlBody ?? undefined,
           });
         } else {
           await this.smsProvider.send({ to: row.recipient, body: row.body });

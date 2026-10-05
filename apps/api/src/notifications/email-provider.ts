@@ -3,6 +3,8 @@ export interface EmailSendRequest {
   subject: string;
   /** Plain text — each concrete provider decides how (or whether) to render this as HTML for its own API. */
   body: string;
+  /** Phase 19: a ready HTML version (e.g. with a QR code image). Providers send it alongside the text. */
+  html?: string;
 }
 
 /**

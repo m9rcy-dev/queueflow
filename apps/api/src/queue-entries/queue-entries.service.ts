@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { ticketUrl } from "../appointments/appointment-links";
+import { ticketQrImageUrl, ticketUrl } from "../appointments/appointment-links";
 import { Prisma, type NotificationChannel, type NotificationType } from "@prisma/client";
 import type {
   CustomerActiveEntry,
@@ -22,6 +22,7 @@ import {
   buildCalledMessage,
   buildJoinedMessage,
   buildNearlyNextMessage,
+  buildQrEmailHtml,
   buildRecalledMessage,
 } from "../notifications/notification-copy";
 import { resolveChannel } from "../notifications/resolve-channel";
@@ -258,16 +259,22 @@ export class QueueEntriesService {
           where: { id: queue.tenantId },
           select: { name: true },
         });
+        const body = buildJoinedMessage({
+          businessName: tenant.name,
+          ticketNumber: created.ticketNumber,
+          ticketUrl: ticketUrl(this.config, created.publicToken),
+        });
         await this.notifications.enqueue(tx, {
           tenantId: queue.tenantId,
           queueEntryId: created.id,
           type: "JOINED",
           channel: "EMAIL",
           recipient: created.contactEmail,
-          body: buildJoinedMessage({
-            businessName: tenant.name,
-            ticketNumber: created.ticketNumber,
-            ticketUrl: ticketUrl(this.config, created.publicToken),
+          body,
+          htmlBody: buildQrEmailHtml({
+            text: body,
+            qrImageUrl: ticketQrImageUrl(this.config, created.publicToken),
+            qrCaption: `Ticket #${created.ticketNumber}: scan to open your ticket on any phone`,
           }),
         });
       }

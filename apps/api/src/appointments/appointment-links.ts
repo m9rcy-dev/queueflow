@@ -6,6 +6,22 @@ export function webAppUrl(config: ConfigService, path: string): string {
   return `${base.replace(/\/$/, "")}${path}`;
 }
 
+/** A path on the API (API_PUBLIC_URL) — for images in emails (QR codes). */
+export function apiPublicUrl(config: ConfigService, path: string): string {
+  const base = config.get<string>("API_PUBLIC_URL") ?? "http://localhost:4001";
+  return `${base.replace(/\/$/, "")}${path}`;
+}
+
+/** Phase 19 — the ticket's QR (opens the live ticket), as an image for the "you're in" email. */
+export function ticketQrImageUrl(config: ConfigService, publicToken: string): string {
+  return apiPublicUrl(config, `/public/queue-entries/${publicToken}/qr.png`);
+}
+
+/** Phase 19 — a booking's check-in QR, as an image for its confirmation and reminder emails. */
+export function checkInQrImageUrl(config: ConfigService, publicToken: string): string {
+  return apiPublicUrl(config, `/public/appointments/${publicToken}/check-in-qr.png`);
+}
+
 /** The customer's appointment page — linked from the booked and reminder notifications. */
 export function appointmentManageUrl(config: ConfigService, publicToken: string): string {
   return webAppUrl(config, `/appointment/${publicToken}`);

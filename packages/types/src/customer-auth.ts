@@ -67,3 +67,17 @@ export interface CustomerVisit {
   /** Only for a still-active visit — opens its live ticket page. */
   publicToken: string | null;
 }
+
+/**
+ * GET /customers/me/locations (Phase 19) — where a signed-in customer can
+ * join a queue or book, from their own account: each location's open
+ * queues (by their poster code, which the join and booking pages use).
+ */
+export interface CustomerLocationOption {
+  id: string;
+  name: string;
+  address: string | null;
+  queues: Array<{ name: string; status: "ACTIVE" | "PAUSED" | "CLOSED"; code: string }>;
+  /** True when the business takes bookings here (open to the first queue's booking page). */
+  canBook: boolean;
+}

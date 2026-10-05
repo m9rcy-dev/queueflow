@@ -142,3 +142,13 @@ export function ClockIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function HomeIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 9.5 10 3.5l7 6" />
+      <path d="M5 8.25V16.5h10V8.25" />
+      <path d="M8.5 16.5v-4.5h3v4.5" />
+    </svg>
+  );
+}

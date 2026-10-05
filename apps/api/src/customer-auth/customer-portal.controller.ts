@@ -63,6 +63,12 @@ export class CustomerPortalController {
     return { publicCode };
   }
 
+  /** Phase 19 — where they can join or book from their account (no poster needed). */
+  @Get("locations")
+  locations(@CurrentCustomer() customer: CustomerRequestUser) {
+    return this.customersService.listLocations(customer.tenantId);
+  }
+
   /** Phase 17 — the Queues section: recent visits, newest first. */
   @Get("visits")
   visits(@CurrentCustomer() customer: CustomerRequestUser) {

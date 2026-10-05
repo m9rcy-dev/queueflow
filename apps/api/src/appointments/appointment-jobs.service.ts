@@ -7,9 +7,10 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { resolveChannel } from "../notifications/resolve-channel";
 import {
   buildAppointmentReminderMessage,
+  buildQrEmailHtml,
   formatAppointmentTime,
 } from "../notifications/notification-copy";
-import { appointmentManageUrl } from "./appointment-links";
+import { appointmentManageUrl, checkInQrImageUrl } from "./appointment-links";
 
 const MINUTE_MS = 60_000;
 /** Matches the validation cap on a reminder offset — nothing further ahead can be due. */
@@ -103,6 +104,12 @@ export class AppointmentJobsService {
       );
       if (offset === null) continue;
       const { channel, recipient } = resolveChannel(appointment.customer, appointment.contactEmail);
+      const body = buildAppointmentReminderMessage({
+        businessName: appointment.tenant.name,
+        serviceName: appointment.service.name,
+        when: formatAppointmentTime(appointment.startsAt, appointment.location.timezone),
+        manageUrl: appointmentManageUrl(this.config, appointment.publicToken),
+      });
       rows.push({
         tenantId: appointment.tenantId,
         appointmentId: appointment.id,
@@ -110,12 +117,15 @@ export class AppointmentJobsService {
         reminderOffsetMinutes: offset,
         channel,
         recipient,
-        body: buildAppointmentReminderMessage({
-          businessName: appointment.tenant.name,
-          serviceName: appointment.service.name,
-          when: formatAppointmentTime(appointment.startsAt, appointment.location.timezone),
-          manageUrl: appointmentManageUrl(this.config, appointment.publicToken),
-        }),
+        body,
+        htmlBody:
+          channel === "EMAIL"
+            ? buildQrEmailHtml({
+                text: body,
+                qrImageUrl: checkInQrImageUrl(this.config, appointment.publicToken),
+                qrCaption: "Your check-in code: show it at the counter when you arrive",
+              })
+            : null,
       });
     }
     if (rows.length === 0) return 0;

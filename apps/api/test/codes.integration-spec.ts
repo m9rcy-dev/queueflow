@@ -115,7 +115,7 @@ describe("Codes / QR resolver (integration)", () => {
       .expect(200);
     expect(resolved.body).toEqual({
       contextType: "QUEUE",
-      tenant: { name: "Joe's Barbers", logoPath: null },
+      tenant: { id: expect.any(String), name: "Joe's Barbers", logoPath: null },
       location: { id: location.body.id, name: "Christchurch" },
       queue: { id: queue.body.id, name: "Main Queue", status: "ACTIVE" },
       capabilities: ["JOIN_QUEUE"],

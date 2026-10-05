@@ -102,6 +102,46 @@ export function buildPreferredStaffUnavailableMessage(params: {
   return `${params.businessName}: ${params.staffName} has finished for now. You're still in line (ticket #${params.ticketNumber}) and will be seen by the next available person.`;
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Phase 19 — an email's HTML version with a QR code image under the text:
+ * the message (links clickable), then the code large on white, with what
+ * it's for. The image is a URL on the API (served per ticket/booking token),
+ * not an attachment, so every email provider can send it. The text version
+ * goes alongside, and the link in it still works without images.
+ */
+export function buildQrEmailHtml(params: {
+  text: string;
+  qrImageUrl: string;
+  qrCaption: string;
+}): string {
+  const paragraphs = params.text
+    .split(/\n{2,}/)
+    .map((paragraph) =>
+      escapeHtml(paragraph)
+        .replace(/\n/g, "<br>")
+        .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#4057D6">$1</a>'),
+    )
+    .map((paragraph) => `<p style="margin:0 0 14px">${paragraph}</p>`)
+    .join("");
+  return [
+    '<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#172033;max-width:520px">',
+    paragraphs,
+    '<div style="text-align:center;margin:20px 0 8px">',
+    `<img src="${escapeHtml(params.qrImageUrl)}" width="240" height="240" alt="${escapeHtml(params.qrCaption)}" style="display:inline-block;border:0;background:#fff">`,
+    `<p style="margin:8px 0 0;font-size:13px;color:#5b6474">${escapeHtml(params.qrCaption)}</p>`,
+    "</div>",
+    "</div>",
+  ].join("");
+}
+
 const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   APPROACHING: "You're approaching in line",
   NEARLY_NEXT: "You're almost up!",

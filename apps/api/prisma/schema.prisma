@@ -692,6 +692,9 @@ model NotificationOutbox {
   // thing to send, not a template reference that copy changes could alter
   // after the fact.
   body                  String
+  // Phase 19: the email's HTML version when it carries more than text (a QR
+  // code image) — also finalized at enqueue time. Null = plain text only.
+  htmlBody              String?
   status                NotificationOutboxStatus @default(PENDING)
 
   createdAt DateTime  @default(now())

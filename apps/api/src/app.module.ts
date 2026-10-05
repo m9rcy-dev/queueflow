@@ -26,6 +26,7 @@ import { ServicesModule } from "./services/services.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { ShiftsModule } from "./shifts/shifts.module";
 import { PlatformModule } from "./platform/platform.module";
+import { QrImagesModule } from "./qr-images/qr-images.module";
 import { RawImageBodyMiddleware } from "./tenants/raw-image-body.middleware";
 
 @Module({
@@ -61,6 +62,7 @@ import { RawImageBodyMiddleware } from "./tenants/raw-image-body.middleware";
     AppointmentsModule,
     ShiftsModule,
     PlatformModule,
+    QrImagesModule,
     RetentionModule,
   ],
   providers: [

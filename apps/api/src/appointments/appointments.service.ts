@@ -25,13 +25,14 @@ import { resolveChannel } from "../notifications/resolve-channel";
 import {
   buildAppointmentBookedMessage,
   buildAppointmentCancelledMessage,
+  buildQrEmailHtml,
   formatAppointmentTime,
 } from "../notifications/notification-copy";
 import { normalizePhoneToE164 } from "../common/phone.util";
 import { generateSecurePublicToken } from "../common/secure-token.util";
 import { addDays, dayOfWeekOf, formatLocalDate, localTimeToUtc } from "../common/timezone.util";
 import { formatLocalMinutes, generateSlots, type GeneratedSlot } from "./slot-engine";
-import { appointmentManageUrl, googleCalendarUrl } from "./appointment-links";
+import { appointmentManageUrl, checkInQrImageUrl, googleCalendarUrl } from "./appointment-links";
 import { tenantLogoPath } from "../tenants/tenant-logo.service";
 
 const MINUTE_MS = 60_000;
@@ -345,29 +346,39 @@ export class AppointmentsService {
 
         const { channel, recipient } = resolveChannel(customer, created.contactEmail);
         const manageUrl = appointmentManageUrl(this.config, created.publicToken);
+        const bookedBody = buildAppointmentBookedMessage({
+          businessName: context.tenant.name,
+          serviceName: context.service.name,
+          when: formatAppointmentTime(created.startsAt, context.location.timezone),
+          manageUrl,
+          // Phase 19: an email gets a one-tap "add to calendar" link.
+          calendarUrl:
+            channel === "EMAIL"
+              ? googleCalendarUrl({
+                  title: `${context.service.name} — ${context.tenant.name}`,
+                  startsAt: created.startsAt,
+                  endsAt: created.endsAt,
+                  details: `Check in or cancel: ${manageUrl}`,
+                  location: `${context.tenant.name}, ${context.location.name}`,
+                })
+              : undefined,
+        });
         await this.notifications.enqueue(tx, {
           tenantId,
           appointmentId: created.id,
           type: "APPOINTMENT_BOOKED",
           channel,
           recipient,
-          body: buildAppointmentBookedMessage({
-            businessName: context.tenant.name,
-            serviceName: context.service.name,
-            when: formatAppointmentTime(created.startsAt, context.location.timezone),
-            manageUrl,
-            // Phase 19: an email gets a one-tap "add to calendar" link.
-            calendarUrl:
-              channel === "EMAIL"
-                ? googleCalendarUrl({
-                    title: `${context.service.name} — ${context.tenant.name}`,
-                    startsAt: created.startsAt,
-                    endsAt: created.endsAt,
-                    details: `Check in or cancel: ${manageUrl}`,
-                    location: `${context.tenant.name}, ${context.location.name}`,
-                  })
-                : undefined,
-          }),
+          body: bookedBody,
+          // Phase 19: the check-in QR in the email itself — scan it at the counter.
+          htmlBody:
+            channel === "EMAIL"
+              ? buildQrEmailHtml({
+                  text: bookedBody,
+                  qrImageUrl: checkInQrImageUrl(this.config, created.publicToken),
+                  qrCaption: "Your check-in code: show it at the counter when you arrive",
+                })
+              : null,
         });
         return withRelations;
       });

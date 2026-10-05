@@ -24,7 +24,7 @@ export class SmtpEmailProvider extends EmailProvider {
       to: request.to,
       subject: request.subject,
       text: request.body,
-      html: `<p>${escapeHtml(request.body).replace(/\n/g, "<br>")}</p>`,
+      html: request.html ?? `<p>${escapeHtml(request.body).replace(/\n/g, "<br>")}</p>`,
     });
   }
 

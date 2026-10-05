@@ -9,6 +9,7 @@ import { publicApi } from "../../../../lib/api-client";
 import { addDaysTo, formatLocalDate } from "../../../../lib/appointment-format";
 import { BusinessLogo } from "../../../../components/BusinessLogo";
 import { SavedVisitBanner } from "../../../../components/SavedVisitBanner";
+import { useCustomerPrefill } from "../../../../lib/use-customer-prefill";
 import { saveVisit } from "../../../../lib/saved-visits";
 import { PoweredByQueueFlow } from "../../../../components/QueueFlowLogo";
 
@@ -51,6 +52,14 @@ export default function BookAppointmentPage() {
   const [customerPhone, setCustomerPhone] = useState("");
   // Phase 19: the confirmation (with an add-to-calendar link) and reminders go here.
   const [customerEmail, setCustomerEmail] = useState("");
+  // Phase 19: signed in at this business? Fill in their details.
+  const prefill = useCustomerPrefill(resolution?.tenant.id);
+  useEffect(() => {
+    if (!prefill) return;
+    setCustomerName((current) => current || prefill.name);
+    setCustomerPhone((current) => current || prefill.phone);
+    setCustomerEmail((current) => current || prefill.email);
+  }, [prefill]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Same G-21 rule as joining: the browser makes a retried booking idempotent.

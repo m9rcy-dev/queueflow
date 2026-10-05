@@ -428,4 +428,83 @@ describe("Shifts & preferred staff (integration)", () => {
     expect(plainSent.some((n) => n.type === "JOINED")).toBe(false);
     expect(plainSent.every((n) => n.channel === "SMS")).toBe(true);
   });
+  it("a signed-in customer sees where they can join or book, with no poster in hand (Phase 19)", async () => {
+    const owner = await signUpOwner();
+    const a = await addLocation(owner.auth, "Kilo");
+    // A second location with a queue but no customer poster isn't offered.
+    await request(server())
+      .post("/tenants/me/locations")
+      .set(owner.auth)
+      .send({ name: "Lima", timezone: "Pacific/Auckland" })
+      .expect(201);
+    const tenant = await prisma.tenant.findFirstOrThrow({
+      where: { name: `Shift Biz ${counter}` },
+    });
+
+    const email = `cust-${counter}@example.com`;
+    await request(server())
+      .post("/public/customers/signup")
+      .send({ tenantId: tenant.id, name: "Cara", phone: "021 900 0801", email })
+      .expect(202);
+    const customer = await prisma.customer.findUniqueOrThrow({
+      where: { tenantId_email: { tenantId: tenant.id, email } },
+    });
+    const code = await prisma.customerLoginCode.findFirstOrThrow({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: "desc" },
+    });
+    const session = await request(server())
+      .post("/public/customers/login/verify")
+      .send({ tenantId: tenant.id, email, code: recoverCodeFromHash(code.codeHash) })
+      .expect(201);
+
+    const locations = await request(server())
+      .get("/customers/me/locations")
+      .set(bearer(session.body.accessToken))
+      .expect(200);
+    expect(locations.body).toEqual([
+      {
+        id: a.locationId,
+        name: "Kilo",
+        address: null,
+        queues: [{ name: "Kilo Queue", status: "ACTIVE", code: a.posterCode }],
+        canBook: false, // the business hasn't switched appointments on
+      },
+    ]);
+    // Staff tokens don't open the customer area.
+    await request(server()).get("/customers/me/locations").set(owner.auth).expect(401);
+  });
+
+  it("the 'you're in' email carries the ticket's QR as an image (Phase 19)", async () => {
+    const owner = await signUpOwner();
+    const a = await addLocation(owner.auth, "Mike");
+    const joined = await request(server())
+      .post(`/public/queues/${a.queueId}/entries`)
+      .send({
+        serviceId: a.serviceId,
+        customerName: "E",
+        customerPhone: "021 900 0901",
+        customerEmail: "e@example.com",
+      })
+      .expect(201);
+    const token = joined.body.publicToken as string;
+    const email = await prisma.notificationOutbox.findFirstOrThrow({
+      where: { queueEntryId: joined.body.id, type: "JOINED" },
+    });
+    expect(email.htmlBody).toContain(`/public/queue-entries/${token}/qr.png`);
+    expect(email.htmlBody).toContain(`/queue/t/${token}`); // the link too, clickable
+
+    const image = await request(server())
+      .get(`/public/queue-entries/${token}/qr.png`)
+      .buffer(true)
+      .parse((res, done) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => done(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect(image.headers["content-type"]).toBe("image/png");
+    expect((image.body as Buffer).subarray(1, 4).toString()).toBe("PNG");
+    await request(server()).get("/public/queue-entries/not-a-real-token/qr.png").expect(404);
+  });
 });

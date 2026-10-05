@@ -9,6 +9,7 @@ import type { QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
 import { SavedVisitBanner } from "../../../components/SavedVisitBanner";
+import { useCustomerPrefill } from "../../../lib/use-customer-prefill";
 import { saveVisit } from "../../../lib/saved-visits";
 import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
@@ -32,6 +33,14 @@ export default function CodeLandingPage() {
   const [customerPhone, setCustomerPhone] = useState("");
   // Phase 19: optional — the ticket link is emailed so it can't be lost.
   const [customerEmail, setCustomerEmail] = useState("");
+  // Phase 19: signed in at this business? Fill in their details.
+  const prefill = useCustomerPrefill(resolution?.tenant.id);
+  useEffect(() => {
+    if (!prefill) return;
+    setCustomerName((current) => current || prefill.name);
+    setCustomerPhone((current) => current || prefill.phone);
+    setCustomerEmail((current) => current || prefill.email);
+  }, [prefill]);
   // Phase 18: "" = anyone, else a tenantUserId of someone on shift now.
   const [preferredStaffId, setPreferredStaffId] = useState("");
   const [submitting, setSubmitting] = useState(false);

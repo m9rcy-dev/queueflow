@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import type {
   CustomerActiveEntry,
   CustomerAuthenticatedUser,
+  CustomerLocationOption,
   CustomerPortalSummary,
   StaffCreateCustomerResponse,
 } from "@queueflow/types";
@@ -28,6 +29,59 @@ export class CustomersService {
     private readonly codesService: CodesService,
     private readonly queueEntries: QueueEntriesService,
   ) {}
+
+  /**
+   * Where this customer can join or book (Phase 19), so the account works
+   * without a poster in hand: every location of their business with a queue
+   * that has a customer poster, and whether it takes bookings. Only what the
+   * posters already show publicly.
+   */
+  async listLocations(tenantId: string): Promise<CustomerLocationOption[]> {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { appointmentEnabled: true },
+    });
+    const locations = await this.prisma.location.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "asc" },
+      include: {
+        queues: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            codes: {
+              where: { contextType: "QUEUE", active: true },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { publicCode: true },
+            },
+          },
+        },
+        services: {
+          where: { active: true, appointmentEnabled: true },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    return locations
+      .map((location) => {
+        const queues = location.queues
+          .filter((queue) => queue.codes.length > 0)
+          .map((queue) => ({
+            name: queue.name,
+            status: queue.status,
+            code: queue.codes[0].publicCode,
+          }));
+        return {
+          id: location.id,
+          name: location.name,
+          address: location.address,
+          queues,
+          canBook: tenant.appointmentEnabled && location.services.length > 0 && queues.length > 0,
+        };
+      })
+      .filter((location) => location.queues.length > 0);
+  }
 
   /**
    * Upserts on (tenantId, phoneE164) — the exact same key the anonymous

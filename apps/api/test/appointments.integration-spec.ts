@@ -222,6 +222,11 @@ describe("Appointments (integration)", () => {
     expect(confirmation).toMatchObject({ channel: "EMAIL", recipient: "ana@example.com" });
     expect(confirmation.body).toContain("calendar.google.com/calendar/render");
     expect(confirmation.body).toContain(`/appointment/${withEmail.body.publicToken}`);
+    // The check-in QR is in the email as an image, and served while it can be used.
+    const qrPath = `/public/appointments/${withEmail.body.publicToken}/check-in-qr.png`;
+    expect(confirmation.htmlBody).toContain(qrPath);
+    const image = await request(app.getHttpServer()).get(qrPath).expect(200);
+    expect(image.headers["content-type"]).toBe("image/png");
     // The contact email is for this booking only — it never becomes an account login.
     const customer = await prisma.customer.findUniqueOrThrow({
       where: { id: appointment.customerId },

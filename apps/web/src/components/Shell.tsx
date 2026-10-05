@@ -49,6 +49,7 @@ function initials(name: string): string {
 export function Shell({
   brand,
   brandLogoPath = null,
+  mobileTabBar = false,
   navItems,
   profileName,
   profileDetail,
@@ -60,6 +61,8 @@ export function Shell({
   brand: string;
   /** Phase 19: the business's logo (API path) beside its name; QueueFlow's own sits at the bottom. */
   brandLogoPath?: string | null;
+  /** Phase 19: on phones, the menu as a tab bar along the bottom (the customer area), not just ☰. */
+  mobileTabBar?: boolean;
   navItems: ShellNavItem[];
   profileName: string;
   profileDetail: string;
@@ -244,7 +247,11 @@ export function Shell({
           </span>
         </div>
 
-        <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+        <main
+          className={`mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 ${
+            mobileTabBar ? "pb-24 md:pb-8" : ""
+          }`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-xl font-semibold text-text-primary">{title}</h1>
             {actions}
@@ -252,6 +259,30 @@ export function Shell({
           {children}
         </main>
       </div>
+
+      {mobileTabBar && (
+        <nav
+          aria-label="Main"
+          className="fixed inset-x-0 bottom-0 z-20 flex border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+        >
+          {navItems.map((item) => {
+            const active = isActive(item);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+                  active ? "text-primary" : "text-text-secondary"
+                }`}
+              >
+                <item.Icon className="h-5 w-5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }

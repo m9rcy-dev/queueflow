@@ -2,6 +2,7 @@ import {
   buildAppointmentBookedMessage,
   buildAppointmentCancelledMessage,
   buildEmailSubject,
+  buildQrEmailHtml,
   formatAppointmentTime,
 } from "./notification-copy";
 
@@ -38,5 +39,20 @@ describe("appointment notification copy (Phase 13)", () => {
   it("has an email subject for each appointment type", () => {
     expect(buildEmailSubject("APPOINTMENT_BOOKED")).toBeTruthy();
     expect(buildEmailSubject("APPOINTMENT_CANCELLED")).toBeTruthy();
+  });
+});
+
+describe("buildQrEmailHtml (Phase 19)", () => {
+  it("escapes the text, keeps links clickable, and puts the QR image under it", () => {
+    const html = buildQrEmailHtml({
+      text: `<b>Bob's</b> & Co: you're in.\n\nOpen: https://q.example.com/queue/t/abc`,
+      qrImageUrl: "https://api.example.com/public/queue-entries/abc/qr.png",
+      qrCaption: "Ticket #3",
+    });
+    expect(html).toContain("&lt;b&gt;Bob's&lt;/b&gt; &amp; Co");
+    expect(html).not.toContain("<b>");
+    expect(html).toContain('<a href="https://q.example.com/queue/t/abc"');
+    expect(html).toContain('<img src="https://api.example.com/public/queue-entries/abc/qr.png"');
+    expect(html).toContain("Ticket #3");
   });
 });

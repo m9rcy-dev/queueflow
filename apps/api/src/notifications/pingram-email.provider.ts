@@ -61,7 +61,7 @@ export class PingramEmailProvider extends EmailProvider {
         type: "transactional",
         to: request.to,
         subject: request.subject,
-        html: toSimpleHtml(request.body),
+        html: request.html ?? toSimpleHtml(request.body),
         ...(fromAddress && { fromAddress }),
       }),
     });

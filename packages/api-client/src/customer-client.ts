@@ -3,6 +3,7 @@ import type {
   AuthenticatorStatus,
   CustomerActiveEntry,
   CustomerAuthResponse,
+  CustomerLocationOption,
   CustomerPortalSummary,
   CustomerUpcomingAppointment,
   CustomerVisit,
@@ -99,6 +100,11 @@ export class CustomerApiClient {
 
   getMe(): Promise<CustomerPortalSummary> {
     return this.request("/customers/me");
+  }
+
+  /** Phase 19 — where this customer can join a queue or book. */
+  listLocations(): Promise<CustomerLocationOption[]> {
+    return this.request("/customers/me/locations");
   }
 
   getIdentityCode(): Promise<{ publicCode: string }> {
