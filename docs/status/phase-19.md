@@ -96,6 +96,16 @@ reads "Someone else, or another business? Sign in with email".
   - Checked from the Mac via its IP: the page loads, the policy names the IP, and the API's CORS
     accepts it. Not yet tried from an actual phone.
 - **README:** a section on testing from a phone, and every entry point by role.
+- **The camera as a backup scanner.** The Scan page has **Use camera** (`CameraScanner`, decoding
+  with `jsQR`, because iPhone and iPad Safari have no built-in decoder). It uses the same call as
+  the counter scanner; the same code isn't processed twice within 4 seconds, and the phone
+  vibrates on a read where supported.
+  - `Permissions-Policy` now allows the camera for our own pages (`camera=(self)`); it was off
+    everywhere.
+  - QR images now use the standard's 4-module margin (it was 1).
+  - Checked: a 27-character code drawn by our QR library decodes exactly with jsQR. Not yet
+    tried on a real iPhone: the camera needs HTTPS, so that test comes with the first deploy
+    (Phase 20). On a Mac, `localhost` works with its webcam.
 
 ## Tests
 

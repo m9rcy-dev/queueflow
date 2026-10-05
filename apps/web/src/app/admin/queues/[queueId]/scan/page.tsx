@@ -6,6 +6,7 @@ import { Badge, Card } from "@queueflow/ui";
 import { ApiError } from "@queueflow/api-client";
 import type { StaffQueueEntrySummary } from "@queueflow/types";
 import { staffApi } from "../../../../../lib/staff-api-client";
+import { CameraScanner } from "../../../../../components/CameraScanner";
 import { useStaffSession } from "../../../../../lib/use-staff-session";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -30,19 +31,26 @@ export default function ScannerPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<StaffQueueEntrySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Phase 19: the phone/tablet camera as a backup for the counter scanner.
+  const [useCamera, setUseCamera] = useState(false);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [result, error]);
+    if (!useCamera) inputRef.current?.focus();
+  }, [result, error, useCamera]);
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!code.trim()) return;
+    await submitCode(code);
+  }
+
+  /** One path for both: the counter scanner (typed + Enter) and the camera. */
+  async function submitCode(scanned: string): Promise<void> {
+    if (!scanned.trim() || submitting) return;
     setSubmitting(true);
     setError(null);
     setResult(null);
     try {
-      const entry = await staffApi.scan(queueId, code.trim());
+      const entry = await staffApi.scan(queueId, scanned.trim());
       setResult(entry);
     } catch (err) {
       setError(errorMessage(err, "This code isn't recognized."));
@@ -69,7 +77,35 @@ export default function ScannerPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="w-full">
+      <div className="flex w-full rounded-lg border border-border bg-surface p-1 text-sm">
+        {[
+          { camera: false, label: "Counter scanner" },
+          { camera: true, label: "Use camera" },
+        ].map((option) => (
+          <button
+            key={option.label}
+            type="button"
+            aria-pressed={useCamera === option.camera}
+            onClick={() => setUseCamera(option.camera)}
+            className={`flex-1 rounded-md px-3 py-2 font-medium ${
+              useCamera === option.camera ? "bg-primary text-white" : "text-text-secondary"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      {useCamera && (
+        <>
+          <CameraScanner onCode={(scanned) => void submitCode(scanned)} paused={submitting} />
+          <p className="-mt-3 text-xs text-text-secondary">
+            Hold the customer&apos;s code inside the square. It&apos;s read automatically.
+          </p>
+        </>
+      )}
+
+      <form onSubmit={handleSubmit} className={useCamera ? "hidden" : "w-full"}>
         <input
           ref={inputRef}
           value={code}

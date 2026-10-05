@@ -96,7 +96,12 @@ Staff members, and see and fix hours there.
 Same sign-in: **`/admin/login`**. Their menu has Queues, Appointments and Hours (their own).
 
 - **The queue dashboard** (`/admin/queues/<id>`): Clock in / Clock out, Call Next, Start,
-  Complete, hand over, add a walk-in, and Scan for the counter scanner.
+  Complete, hand over, add a walk-in, and Scan.
+- **Scan** (`/admin/queues/<id>/scan`) reads guest cards, customers' personal codes and booking
+  check-in codes. A USB or Bluetooth 2D scanner in keyboard mode types into it. **Use camera**
+  reads codes with a phone's or tablet's camera instead, the backup when there's no scanner. The
+  camera needs an `https://` address, or `localhost` on the same computer; browsers don't offer
+  it on plain `http://<ip>`.
 - **Account:** "Name customers see" sets the name shown on the TV board and on the join page.
 - **A shared counter tablet:** once someone chooses "Trust this device" on the dashboard, staff
   switch in with their PIN at `/admin/login`.

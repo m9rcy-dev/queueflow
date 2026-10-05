@@ -23,8 +23,10 @@ export function TicketQrCode({
 
   useEffect(() => {
     let cancelled = false;
-    // Rendered at 2x so it stays sharp when printed.
-    QRCode.toDataURL(url, { margin: 1, width: size * 2 })
+    // Rendered at 2x so it stays sharp when printed. Margin 4 is the QR
+    // standard's quiet zone (ISO/IEC 18004) — what scanners and cameras rely
+    // on to find the code, and what keeps nearby text from interfering.
+    QRCode.toDataURL(url, { margin: 4, width: size * 2 })
       .then((generated) => {
         if (!cancelled) setDataUrl(generated);
       })
