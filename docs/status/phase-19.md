@@ -107,6 +107,33 @@ reads "Someone else, or another business? Sign in with email".
     tried on a real iPhone: the camera needs HTTPS, so that test comes with the first deploy
     (Phase 20). On a Mac, `localhost` works with its webcam.
 
+**The customer area and QR codes in emails** (from the user's testing):
+
+- **The problem:** after signing in, customers landed on a page showing only "not in a queue". On
+  a phone the menu was hidden behind ☰, so there was no visible personal QR, no way to book, and
+  no account.
+- **Home** (`/c/portal`) now shows:
+  - their personal QR, large, tap for full screen;
+  - any live ticket;
+  - their next booking;
+  - **Join the queue** and **Book an appointment** for each location (new
+    `GET /customers/me/locations`, which lists only queues with a customer poster).
+- **Navigation:** visit history moved to `/c/portal/visits`. On phones the menu is a bottom tab
+  bar (Home, Visits, Bookings, QR Codes, Account), and Account has Log out.
+- **Pre-filled forms:** the join and booking forms fill in a signed-in customer's name, phone and
+  email when the poster is their own business. The poster's code lookup now includes the business
+  ID so the page can tell.
+- **QR codes in emails:**
+  - "You're in the queue" carries the ticket's QR; booking confirmations and reminders carry the
+    check-in QR.
+  - The outbox stores a finished HTML version (`htmlBody`, migration
+    `20261005130000_add_outbox_html`).
+  - The images are served by the API, reached only through the ticket's or booking's secret
+    token: `/public/queue-entries/:token/qr.png`, and `/public/appointments/:token/check-in-qr.png`
+    while the code is usable. Email addresses them via `API_PUBLIC_URL`.
+  - Checked end to end: a Demo Barbers join with an email arrived in Mailpit with the image, and
+    the image decodes to that ticket's link (the test ticket was then cancelled).
+
 ## Tests
 
 - **Unit, 298:** the allow-list matching (case, spacing, no substring matches), the SMTP provider

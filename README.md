@@ -117,10 +117,17 @@ Customers don't need an account for the queue or for booking.
 | `/queue/t/<token>`     | After joining, or from the email        | The live ticket: place in line, wait estimate, QR code                      |
 | `/appointment/<token>` | After booking, or from the email        | The booking: add to calendar, check in, its QR code, cancel                 |
 | `/c/<code>`            | Scanning the business's sign-up poster  | Create an account or sign in                                                |
-| `/c/portal`            | After signing in                        | Their tickets and visits, appointments, QR codes, account                   |
+| `/c/portal`            | After signing in                        | **Home:** their personal QR, live ticket, next booking, Join / Book         |
+| `/c/portal/visits`     | The menu (a tab bar on phones)          | Recent visits                                                               |
+| `/c/portal/account`    | The menu                                | Their details, login codes by email or authenticator app, log out           |
 
 Going back to a poster's page on the same phone offers "You're already in this queue" or "You
 have a booking here" with a link back to it.
+
+A signed-in customer gets their name, phone and email filled in on the join and booking forms.
+Emails carry the QR code as an image. "You're in the queue" has the ticket's QR; booking
+confirmations and reminders have the check-in QR. The API serves these images, so
+`API_PUBLIC_URL` must be its public address.
 
 ### TV board
 
