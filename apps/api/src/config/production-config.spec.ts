@@ -95,4 +95,39 @@ describe("production config checks (Phase 20)", () => {
     expect(businessSignupEnabled({ ...GOOD, BUSINESS_SIGNUP_ENABLED: "true" })).toBe(true);
     expect(businessSignupEnabled({ NODE_ENV: "test" })).toBe(true);
   });
+
+  it("checks the SMS provider separately from email (Phase 20)", () => {
+    const twilio = { ...GOOD, SMS_PROVIDER: "twilio" };
+    expect(checkProductionConfig(twilio).errors).toEqual([
+      "TWILIO_ACCOUNT_SID is not set.",
+      "TWILIO_AUTH_TOKEN is not set.",
+      "Set TWILIO_MESSAGING_SERVICE_SID (or TWILIO_FROM_NUMBER) to send SMS.",
+    ]);
+    const configured = checkProductionConfig({
+      ...twilio,
+      TWILIO_ACCOUNT_SID: "AC1",
+      TWILIO_AUTH_TOKEN: "t",
+      TWILIO_MESSAGING_SERVICE_SID: "MG1",
+    });
+    expect(configured).toEqual({ errors: [], warnings: [] }); // no "no SMS" warning any more
+    // Email on SMTP with SMS on Twilio — different vendors, both fine.
+    expect(
+      checkProductionConfig({
+        ...GOOD,
+        EMAIL_PROVIDER: "smtp",
+        SMTP_HOST: "smtp.example.com",
+        SMS_PROVIDER: "twilio",
+        TWILIO_ACCOUNT_SID: "AC1",
+        TWILIO_AUTH_TOKEN: "t",
+        TWILIO_FROM_NUMBER: "+15550001111",
+      }).errors,
+    ).toEqual([]);
+    expect(checkProductionConfig({ ...GOOD, SMS_PROVIDER: "carrier-pigeon" }).errors).toHaveLength(
+      1,
+    );
+    expect(checkProductionConfig({ ...GOOD, EMAIL_PROVIDER: "fax" }).errors).toHaveLength(1);
+    expect(
+      checkProductionConfig({ ...GOOD, SMS_DAILY_LIMIT_PER_BUSINESS: "lots" }).errors,
+    ).toHaveLength(1);
+  });
 });

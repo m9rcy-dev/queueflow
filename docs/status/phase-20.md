@@ -35,6 +35,32 @@ sign-up in production; onboard at `/platform`", following Phase 19's onboarding.
 - `.env.example`: the new settings (`CORS_ORIGINS`, `TRUST_PROXY_HOPS`,
   `BUSINESS_SIGNUP_ENABLED`).
 
+## Follow-up the same day: separate email and SMS providers
+
+The user's decisions:
+
+- **Onboarding:** businesses are onboarded only by platform admins; customers sign themselves up.
+- **Hosting:** stays on the free plan.
+- **Providers:** email and SMS must be **separate providers**.
+
+What changed:
+
+- **`TwilioSmsProvider`** (`SMS_PROVIDER=twilio`): Twilio's REST API, preferring a Messaging Service
+  and otherwise a From number.
+- **A per-business daily SMS cap**, `SMS_DAILY_LIMIT_PER_BUSINESS` (default 100). Texts over it are
+  marked `SKIPPED` (migration `20261007100000_add_outbox_skipped`), finally meeting G-29's
+  "cost caps before real SMS".
+- **SMTP requires TLS in production.**
+- **Start-up checks** cover the chosen SMS provider's settings, and refuse unknown providers.
+- **`render.yaml`** asks for both providers when the Blueprint is set up.
+- **`docs/runbooks/deploy.md`** was rewritten as a numbered, step-by-step guide (provider choice,
+  Neon, email, Twilio, Render, Vercel, DNS, checks, a user walkthrough, first business, operations,
+  troubleshooting).
+
+Tests: **318 unit** (Twilio requests and errors, the SMS cap, the SMS settings checks) and **144
+integration**, all passing. A real Twilio send can only be checked with the live account; it's step
+10.4 of the runbook.
+
 ## Verification
 
 - **Quality gate** (`pnpm quality`): build, formatting, lint, typecheck, **311 unit and 144

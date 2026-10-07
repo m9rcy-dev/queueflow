@@ -37,6 +37,10 @@ export class SmtpEmailProvider extends EmailProvider {
         host: this.config.get<string>("SMTP_HOST") ?? "localhost",
         port: Number(this.config.get<string>("SMTP_PORT") ?? 1026),
         secure: this.config.get<string>("SMTP_SECURE") === "true",
+        // Phase 20: in production never fall back to plain text on port 587 —
+        // the connection must upgrade to TLS (STARTTLS) or fail. Local
+        // Mailpit has no TLS, so development is unchanged.
+        requireTLS: this.config.get<string>("NODE_ENV") === "production",
         auth: user && pass ? { user, pass } : undefined,
       });
     }

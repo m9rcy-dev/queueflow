@@ -208,7 +208,7 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 - Appointment booking page day chips start from the browser's today, not the location's; public booking has no per-phone throttle or future-booking cap (Phase 13 — see `docs/status/phase-13.md`).
 - `PROJECT_STATUS.md` itself is ~80KB despite AGENTS.md §8's cap — Phases 0–12's entries are long inline essays. Moving them into `docs/status/phase-NN.md` files (as Phase 13 does) is a worthwhile cleanup, not done here to keep this phase's diff focused.
 - **G-40 partial**: Cloudflare Turnstile (the specific bot-check the plan calls for on the join POST) is not integrated — only IP-based rate limiting (`@nestjs/throttler`, 5/min on join) ships. Adding Turnstile requires an external Cloudflare account/site key.
-- Real SMS provider not integrated at all — only `MockSmsProvider` exists; `SMS_PROVIDER=pingram` (or anything but `mock`) throws at boot by design. Deliberately deferred (G-29) until real per-tenant cost caps exist and NZ SMS pricing is verified on Pingram's pricing page (their advertised free tier is described as "100 SMS to the US" — NZ isn't confirmed).
+- **SMS is optional (Phase 20):** Twilio is implemented (`SMS_PROVIDER=twilio`) with a per-business daily cap (`SMS_DAILY_LIMIT_PER_BUSINESS`, default 100; G-29). It hasn't been tried against a live Twilio account yet; that's step 10.4 of `docs/runbooks/deploy.md`. With `mock`, phone-only customers get no alerts, and the join form recommends an email. Email and SMS providers are chosen separately.
 - An anonymous walk-in join is still SMS-channel by construction (only a phone is captured) — `EmailProvider`/`PingramEmailProvider` are reachable through real customer traffic (Phase 9's account emails, proven live) but a queue _notification_ for an unlinked walk-in still has no email to send to unless that phone number already belongs to a signed-up account. Auth OTP/invite emails for staff are now on the same real `EmailProvider` path too (Phase 12, G-41 — `ConsoleMailService` is gone).
 - Consent text + versioning (G-48) not yet implemented — structural requirement, decided in planning; real legal copy needs to exist before any real business's customer data flows through this.
 - Rate limiting (G-38) is in-process only, correct for the current single-instance deployment (D-06) — concrete numbers are now enforced everywhere the plan specifies (Phase 12), but a Redis/Upstash-backed version for horizontal-scale/multi-instance deployments is still not built; revisit only when D-06's single-instance assumption itself changes.
@@ -236,7 +236,8 @@ It needs `main` on GitHub. Merge `feature/QF-020-first-deploy` into `main` when 
 
 **After launch, candidates:**
 
-- **Real SMS:** needs a provider account and per-business cost limits.
+- **Turning on SMS:** Twilio is ready (`SMS_PROVIDER=twilio`, capped per business per day). It needs
+  only the Twilio account; see the runbook, step 5.
 - **The NestJS 11 upgrade.**
 - **The always-on hosting plan**, before real trading-hours use.
 - **Consent text and legal copy (G-48):** needed before a real business's customers use it.

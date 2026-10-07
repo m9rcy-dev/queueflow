@@ -22,6 +22,7 @@ describe("SmtpEmailProvider (Phase 19 — local Mailpit)", () => {
       host: "localhost",
       port: 1026,
       secure: false,
+      requireTLS: false,
       auth: undefined,
     });
     expect(sendMail).toHaveBeenCalledWith({
@@ -42,6 +43,7 @@ describe("SmtpEmailProvider (Phase 19 — local Mailpit)", () => {
         SMTP_USER: "u",
         SMTP_PASSWORD: "p",
         SMTP_FROM: "Biz <b@example.com>",
+        NODE_ENV: "production",
       }),
     );
     await provider.send({ to: "a@example.com", subject: "Hi", body: "x" });
@@ -49,6 +51,7 @@ describe("SmtpEmailProvider (Phase 19 — local Mailpit)", () => {
       host: "smtp.example.com",
       port: 465,
       secure: true,
+      requireTLS: true,
       auth: { user: "u", pass: "p" },
     });
     expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ from: "Biz <b@example.com>" }));

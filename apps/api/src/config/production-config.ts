@@ -68,6 +68,24 @@ export function checkProductionConfig(env: Env): ConfigCheck {
     if (!env.PINGRAM_FROM_EMAIL) errors.push("PINGRAM_FROM_EMAIL is not set.");
   } else if (email === "smtp") {
     if (!env.SMTP_HOST) errors.push("SMTP_HOST is not set.");
+  } else {
+    errors.push(`EMAIL_PROVIDER "${email}" is unknown — use "pingram" or "smtp".`);
+  }
+
+  // SMS is chosen separately from email, so the two can be different vendors.
+  const sms = env.SMS_PROVIDER ?? "mock";
+  if (sms === "twilio") {
+    if (!env.TWILIO_ACCOUNT_SID) errors.push("TWILIO_ACCOUNT_SID is not set.");
+    if (!env.TWILIO_AUTH_TOKEN) errors.push("TWILIO_AUTH_TOKEN is not set.");
+    if (!env.TWILIO_MESSAGING_SERVICE_SID && !env.TWILIO_FROM_NUMBER) {
+      errors.push("Set TWILIO_MESSAGING_SERVICE_SID (or TWILIO_FROM_NUMBER) to send SMS.");
+    }
+  } else if (sms !== "mock") {
+    errors.push(`SMS_PROVIDER "${sms}" is unknown — use "twilio" (or "mock" for no SMS).`);
+  }
+  const smsLimit = env.SMS_DAILY_LIMIT_PER_BUSINESS;
+  if (smsLimit !== undefined && smsLimit !== "" && !(Number(smsLimit) >= 0)) {
+    errors.push("SMS_DAILY_LIMIT_PER_BUSINESS must be a number (0 or more).");
   }
 
   if (env.DISABLE_RATE_LIMITING === "true") {
@@ -78,7 +96,7 @@ export function checkProductionConfig(env: Env): ConfigCheck {
       "DISABLE_SCHEDULED_JOBS is set: no-shows won't be marked and appointment reminders won't be sent.",
     );
   }
-  if ((env.SMS_PROVIDER ?? "mock") === "mock") {
+  if (sms === "mock") {
     warnings.push(
       "No SMS provider: customers who give only a phone number get no notifications. Ask for an email when joining.",
     );

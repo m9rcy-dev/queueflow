@@ -667,6 +667,9 @@ enum NotificationChannel {
 enum NotificationOutboxStatus {
   PENDING
   SENT
+  // Phase 20 (G-29): an SMS not sent because the business reached its daily
+  // SMS limit (SMS_DAILY_LIMIT_PER_BUSINESS). Never retried.
+  SKIPPED
 }
 
 model NotificationOutbox {

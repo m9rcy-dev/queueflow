@@ -1,4 +1,5 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { NotificationChannel, NotificationType, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { EmailProvider } from "./email-provider";
@@ -30,10 +31,13 @@ const PROCESS_BATCH_LIMIT = 50;
  */
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailProvider: EmailProvider,
     private readonly smsProvider: SmsProvider,
+    private readonly config: ConfigService,
   ) {}
 
   /** Must be called with the same `tx` the triggering mutation is using (G-31). */
@@ -79,6 +83,20 @@ export class NotificationsService {
         continue; // another concurrent pass already claimed it
       }
 
+      // Phase 20 (G-29): each business sends at most SMS_DAILY_LIMIT_PER_BUSINESS
+      // SMS a day (UTC), so a busy day or abuse can't run up the bill. Over the
+      // limit the message is skipped for good, not retried later.
+      if (row.channel === "SMS" && (await this.overDailySmsLimit(row.tenantId))) {
+        await this.prisma.notificationOutbox.update({
+          where: { id: row.id },
+          data: { status: "SKIPPED", sentAt: null },
+        });
+        this.logger.warn(
+          `Daily SMS limit reached for business ${row.tenantId}; skipped a ${row.type} SMS.`,
+        );
+        continue;
+      }
+
       try {
         if (row.channel === "EMAIL") {
           await this.emailProvider.send({
@@ -98,5 +116,17 @@ export class NotificationsService {
         throw err;
       }
     }
+  }
+
+  /** True once this business has sent more SMS today (UTC) than allowed — the row being sent is already counted. */
+  private async overDailySmsLimit(tenantId: string): Promise<boolean> {
+    const limit = Number(this.config.get<string>("SMS_DAILY_LIMIT_PER_BUSINESS") ?? 100);
+    if (!Number.isFinite(limit)) return false;
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const sentToday = await this.prisma.notificationOutbox.count({
+      where: { tenantId, channel: "SMS", status: "SENT", sentAt: { gte: startOfDay } },
+    });
+    return sentToday > limit;
   }
 }

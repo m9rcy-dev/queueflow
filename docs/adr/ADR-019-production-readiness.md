@@ -75,6 +75,24 @@ overrides force patched lodash, qs, body-parser, multer, file-type, uuid and pos
 `docs/runbooks/deploy.md` is the step-by-step guide. `scripts/smoke.sh` checks a deploy from the
 outside.
 
+**Email and SMS are separate choices** (the user's decision, 2026-10-07: not dependent on one
+vendor). Each provider is picked by its own setting, and a production deploy checks the chosen
+provider's settings.
+
+- **Email** (`EMAIL_PROVIDER`): `pingram`, or `smtp` for any SMTP service (Amazon SES, Postmark,
+  Brevo, Mailgun…). In production, SMTP must switch to TLS (`requireTLS`).
+- **SMS** (`SMS_PROVIDER`): `twilio` (new; its REST API is called directly, with no SDK), or `mock`
+  for no SMS.
+- **Spending cap (G-29):** each business may send `SMS_DAILY_LIMIT_PER_BUSINESS` texts per UTC day
+  (default 100). Over the cap, a text is marked `SKIPPED` and never retried.
+
+More providers fit the same pattern: one class implementing `EmailProvider` or `SmsProvider`, plus
+a case in `notifications.module.ts`.
+
+**Who signs up** (the user's decision): **businesses are onboarded only by platform admins**. Public
+business sign-up stays off in production. **Customers sign themselves up**, through each business's
+customer sign-up poster, or join without an account.
+
 **Local quality gate.** `pnpm quality` builds the web app into `.next-build`, so it no longer
 breaks a running `next dev`. `next-env.d.ts` is no longer tracked, because Next regenerates it.
 
@@ -87,4 +105,7 @@ breaks a running `next dev`. `next-env.d.ts` is no longer tracked, because Next 
 - On the free plan the API sleeps when idle: cold starts, and paused reminders and no-shows.
   Upgrading to Starter is a one-line change (`plan: starter`), to be done before a real business
   depends on it.
-- No SMS: phone-only customers get no alerts. The join form now recommends an email and says why.
+- SMS is optional. With `SMS_PROVIDER=mock`, phone-only customers get no alerts, so the join form
+  recommends an email and says why. With `twilio`, they get texts, within the daily cap. Twilio's
+  live sending can only be proven on the real account; its unit tests cover the request format and
+  errors.

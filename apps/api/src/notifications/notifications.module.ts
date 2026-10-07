@@ -6,6 +6,7 @@ import { PingramEmailProvider } from "./pingram-email.provider";
 import { SmtpEmailProvider } from "./smtp-email.provider";
 import { SmsProvider } from "./sms-provider";
 import { MockSmsProvider } from "./mock-sms.provider";
+import { TwilioSmsProvider } from "./twilio-sms.provider";
 import { NotificationsService } from "./notifications.service";
 
 /**
@@ -23,6 +24,7 @@ import { NotificationsService } from "./notifications.service";
     PingramEmailProvider,
     SmtpEmailProvider,
     MockSmsProvider,
+    TwilioSmsProvider,
     {
       provide: EmailProvider,
       useFactory: (
@@ -44,19 +46,21 @@ import { NotificationsService } from "./notifications.service";
     },
     {
       provide: SmsProvider,
-      useFactory: (config: ConfigService, mock: MockSmsProvider): SmsProvider => {
+      // Chosen independently of EMAIL_PROVIDER (Phase 20), so email and SMS
+      // can come from different vendors. Spending is capped per business per
+      // day in NotificationsService (G-29). An unknown value fails at start-up
+      // rather than silently falling back to mock.
+      useFactory: (
+        config: ConfigService,
+        mock: MockSmsProvider,
+        twilio: TwilioSmsProvider,
+      ): SmsProvider => {
         const selected = config.get<string>("SMS_PROVIDER") ?? "mock";
         if (selected === "mock") return mock;
-        // Real SMS is a later adapter (G-29) — only "mock" exists today,
-        // gated on real per-tenant cost caps existing first. Fails loudly
-        // at startup rather than silently falling back to mock, so a
-        // misconfiguration in production is never mistaken for "SMS is
-        // actually sending."
-        throw new Error(
-          `Unknown SMS_PROVIDER "${selected}" — only "mock" is implemented so far (real SMS is a later phase; see docs/roadmap.md Phase 8 and ADR-008).`,
-        );
+        if (selected === "twilio") return twilio;
+        throw new Error(`Unknown SMS_PROVIDER "${selected}" — expected "mock" or "twilio".`);
       },
-      inject: [ConfigService, MockSmsProvider],
+      inject: [ConfigService, MockSmsProvider, TwilioSmsProvider],
     },
   ],
   // EmailProvider is also exported directly (Phase 9) — CustomerAuthService

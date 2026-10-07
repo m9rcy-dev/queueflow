@@ -1,3 +1,4 @@
+import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import { NotificationsService } from "./notifications.service";
 import { EmailProvider } from "./email-provider";
@@ -9,9 +10,11 @@ describe("NotificationsService", () => {
   let prisma: { notificationOutbox: Record<string, jest.Mock> };
   let emailProvider: { send: jest.Mock };
   let smsProvider: { send: jest.Mock };
+  let config: Record<string, string | undefined>;
 
   const smsPendingRow = {
     id: "outbox-1",
+    tenantId: "tenant-1",
     type: "CALLED" as const,
     channel: "SMS" as const,
     recipient: "+64211234567",
@@ -34,8 +37,11 @@ describe("NotificationsService", () => {
         findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn(),
         update: jest.fn(),
+        // SMS sent today by this business (the daily limit, Phase 20) — well under by default.
+        count: jest.fn().mockResolvedValue(1),
       },
     };
+    config = {};
     emailProvider = { send: jest.fn().mockResolvedValue(undefined) };
     smsProvider = { send: jest.fn().mockResolvedValue(undefined) };
 
@@ -45,6 +51,7 @@ describe("NotificationsService", () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EmailProvider, useValue: emailProvider },
         { provide: SmsProvider, useValue: smsProvider },
+        { provide: ConfigService, useValue: { get: (key: string) => config[key] } },
       ],
     }).compile();
 
@@ -138,6 +145,44 @@ describe("NotificationsService", () => {
       await service.processPending();
       expect(smsProvider.send).not.toHaveBeenCalled();
       expect(emailProvider.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("daily SMS limit per business (Phase 20, G-29)", () => {
+    beforeEach(() => {
+      prisma.notificationOutbox.findMany.mockResolvedValue([smsPendingRow]);
+      prisma.notificationOutbox.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it("sends while the business is under its limit", async () => {
+      config.SMS_DAILY_LIMIT_PER_BUSINESS = "5";
+      prisma.notificationOutbox.count.mockResolvedValue(5); // this one included
+      await service.processPending();
+      expect(smsProvider.send).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips (never retries) once the limit is passed — and only counts this business's SMS today", async () => {
+      config.SMS_DAILY_LIMIT_PER_BUSINESS = "5";
+      prisma.notificationOutbox.count.mockResolvedValue(6);
+      await service.processPending();
+      expect(smsProvider.send).not.toHaveBeenCalled();
+      expect(prisma.notificationOutbox.update).toHaveBeenCalledWith({
+        where: { id: "outbox-1" },
+        data: { status: "SKIPPED", sentAt: null },
+      });
+      const [{ where }] = prisma.notificationOutbox.count.mock.calls[0];
+      expect(where).toMatchObject({ tenantId: "tenant-1", channel: "SMS", status: "SENT" });
+      expect(where.sentAt.gte.getUTCHours()).toBe(0);
+    });
+
+    it("defaults to 100 a day, and never limits email", async () => {
+      prisma.notificationOutbox.count.mockResolvedValue(101);
+      await service.processPending();
+      expect(smsProvider.send).not.toHaveBeenCalled();
+
+      prisma.notificationOutbox.findMany.mockResolvedValue([emailPendingRow]);
+      await service.processPending();
+      expect(emailProvider.send).toHaveBeenCalledTimes(1);
     });
   });
 });

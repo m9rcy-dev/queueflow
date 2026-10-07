@@ -42,15 +42,36 @@ services:
         sync: false # e.g. https://q.m9rcy.dev
       - key: API_PUBLIC_URL
         sync: false # e.g. https://api.q.m9rcy.dev
+      # Email and SMS are separate choices, so they can be different vendors
+      # (docs/runbooks/deploy.md, step 2). Enter only the chosen provider's
+      # settings below; leave the other one's blank.
       - key: EMAIL_PROVIDER
-        value: pingram
+        sync: false # "pingram" or "smtp" (any SMTP service: SES, Postmark, Brevo…)
       - key: PINGRAM_API_KEY
         sync: false
       - key: PINGRAM_REGION
         value: us
       - key: PINGRAM_FROM_EMAIL
         sync: false # e.g. noreply@q.m9rcy.dev (verified in Pingram)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false # e.g. QueueFlow <noreply@q.m9rcy.dev>
       - key: SMS_PROVIDER
-        value: mock # no real SMS yet — notifications go by email
+        sync: false # "twilio", or "mock" for no SMS (notifications then go by email only)
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_MESSAGING_SERVICE_SID
+        sync: false # or set TWILIO_FROM_NUMBER instead
+      - key: SMS_DAILY_LIMIT_PER_BUSINESS
+        value: "100" # spending cap: SMS per business per day (G-29)
       - key: PLATFORM_ADMIN_EMAILS
         sync: false # who can sign in at /platform
