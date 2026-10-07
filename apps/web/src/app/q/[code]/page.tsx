@@ -9,6 +9,7 @@ import type { QueueCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
 import { SavedVisitBanner } from "../../../components/SavedVisitBanner";
+import { newRequestId } from "../../../lib/request-id";
 import { useCustomerPrefill } from "../../../lib/use-customer-prefill";
 import { saveVisit } from "../../../lib/saved-visits";
 import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
@@ -47,7 +48,7 @@ export default function CodeLandingPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Generated once per page load and reused across retries — the browser,
   // not the server, is what makes a retried join idempotent (G-21).
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey] = useState(newRequestId);
 
   useEffect(() => {
     publicApi

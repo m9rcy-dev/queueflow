@@ -9,6 +9,7 @@ import { publicApi } from "../../../../lib/api-client";
 import { addDaysTo, formatLocalDate } from "../../../../lib/appointment-format";
 import { BusinessLogo } from "../../../../components/BusinessLogo";
 import { SavedVisitBanner } from "../../../../components/SavedVisitBanner";
+import { newRequestId } from "../../../../lib/request-id";
 import { useCustomerPrefill } from "../../../../lib/use-customer-prefill";
 import { saveVisit } from "../../../../lib/saved-visits";
 import { PoweredByQueueFlow } from "../../../../components/QueueFlowLogo";
@@ -63,7 +64,7 @@ export default function BookAppointmentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Same G-21 rule as joining: the browser makes a retried booking idempotent.
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey] = useState(newRequestId);
 
   useEffect(() => {
     publicApi
