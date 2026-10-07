@@ -37,6 +37,7 @@ interface RequestOptions {
  * browser (e.g. a shop owner checking their own loyalty status).
  */
 export class CustomerApiClient {
+  private refreshInFlight: Promise<boolean> | null = null;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly tokenStorage?: CustomerTokenStorage;
@@ -194,10 +195,31 @@ export class CustomerApiClient {
     return (text ? JSON.parse(text) : null) as T;
   }
 
-  private async refreshAccessToken(): Promise<boolean> {
-    if (!this.tokenStorage) return false;
+  /**
+   * Exchanges the stored refresh token for a new access token. Refresh
+   * tokens are single-use (rotation), so two refreshes must never race with
+   * the same token — the second would be refused and wipe the session. That
+   * happens easily: React runs start-up effects twice in development, and a
+   * page may restore the session from two places at once. So concurrent
+   * calls share one request (Phase 20).
+   */
+  private refreshAccessToken(): Promise<boolean> {
+    if (!this.refreshInFlight) {
+      this.refreshInFlight = this.performRefresh(true).finally(() => {
+        this.refreshInFlight = null;
+      });
+    }
+    return this.refreshInFlight;
+  }
+
+  private async performRefresh(mayRetry: boolean): Promise<boolean> {
+    if (!this.tokenStorage) {
+      return false;
+    }
     const refreshToken = await this.tokenStorage.getRefreshToken();
-    if (!refreshToken) return false;
+    if (!refreshToken) {
+      return false;
+    }
     try {
       const response = await this.fetchImpl(`${this.baseUrl}/public/customers/refresh`, {
         method: "POST",
@@ -205,7 +227,15 @@ export class CustomerApiClient {
         body: JSON.stringify({ refreshToken }),
       });
       if (!response.ok) {
-        await this.tokenStorage.setRefreshToken(null);
+        // Another tab may have just rotated the token: if storage now holds
+        // a different one, use that instead of wiping the session.
+        const current = await this.tokenStorage.getRefreshToken();
+        if (mayRetry && current && current !== refreshToken) {
+          return this.performRefresh(false);
+        }
+        if (current === refreshToken) {
+          await this.tokenStorage.setRefreshToken(null);
+        }
         return false;
       }
       const data = (await response.json()) as { accessToken: string; refreshToken: string };

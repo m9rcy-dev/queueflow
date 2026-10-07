@@ -7,6 +7,7 @@ import { ApiError } from "@queueflow/api-client";
 import type { GeneralCodeResolution } from "@queueflow/types";
 import { publicApi } from "../../../lib/api-client";
 import { customerApi } from "../../../lib/customer-api-client";
+import { rememberCustomerSignInCode } from "../../../lib/use-customer-session";
 import { BusinessLogo } from "../../../components/BusinessLogo";
 import { PoweredByQueueFlow } from "../../../components/QueueFlowLogo";
 
@@ -48,6 +49,7 @@ export default function CustomerSignupLandingPage() {
           return;
         }
         setTenant(data.tenant);
+        rememberCustomerSignInCode(code);
         setStep({ name: "choose" });
       })
       .catch((err) => {

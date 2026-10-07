@@ -20,19 +20,27 @@ export function useStaffSession(): StaffSession | null {
   const [session, setSession] = useState<StaffSession | null>(null);
 
   useEffect(() => {
+    // Ignore a result that arrives after this effect was cleaned up (React
+    // runs effects twice in development).
+    let cancelled = false;
     (async () => {
       const existing = await staffApi.getMe().catch(() => null);
+      if (cancelled) return;
       if (existing) {
         setSession(existing);
         return;
       }
       const restored = await staffApi.restoreSession().catch(() => null);
+      if (cancelled) return;
       if (restored) {
         setSession(restored);
         return;
       }
       router.push("/admin/login");
     })();
+    return () => {
+      cancelled = true;
+    };
     // `router` from useRouter() is a stable reference across re-renders in
     // the App Router — safe to run this effect once per mount only.
     // eslint-disable-next-line react-hooks/exhaustive-deps

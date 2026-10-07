@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Button, Card } from "@queueflow/ui";
 import { customerApi } from "../../../../lib/customer-api-client";
-import { useCustomerSession } from "../../../../lib/use-customer-session";
+import { signInPath, useCustomerSession } from "../../../../lib/use-customer-session";
 import { CustomerShell } from "../../../../components/CustomerShell";
 import { AuthenticatorSettings } from "../../../../components/AuthenticatorSettings";
 
@@ -33,7 +33,7 @@ export default function CustomerAccountPage() {
         variant="secondary"
         onClick={async () => {
           await customerApi.logout();
-          router.push("/");
+          router.push(signInPath());
         }}
       >
         Log out

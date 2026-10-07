@@ -61,6 +61,35 @@ Tests: **318 unit** (Twilio requests and errors, the SMS cap, the SMS settings c
 integration**, all passing. A real Twilio send can only be checked with the live account; it's step
 10.4 of the runbook.
 
+## Fix from the user's phone test: signed out right after signing in
+
+**What happened.** A customer signed up on a phone and entered the emailed code. Sign-in succeeded,
+but the customer area then sent them to the home page ("nothing to see at this address").
+
+**Cause.** Refresh tokens are single-use. The customer area restored the session twice at once,
+because React runs start-up effects twice in development (and a page can also restore from two
+places, for example the form pre-fill). Over the phone's slower connection, the second request
+arrived after the first had used the token. It was refused, and the client wiped the session. The
+staff client had the same pattern.
+
+**Fix** (`packages/api-client`):
+
+- **One refresh at a time:** concurrent refreshes share one request.
+- **Multiple tabs:** a refused refresh first checks whether another tab already replaced the
+  token, and uses it if so.
+- **Session hooks:** they ignore results that arrive after cleanup.
+- **Signed-out customers** (and Log out) go back to their business's sign-in page instead of the
+  bare home page.
+
+**Checked:**
+
+- A simulation reproduced the failure on the old code (both restores failed and the session was
+  wiped), and passed on the new code (one refresh, session kept).
+- The new regression tests (`apps/web/src/lib/session-refresh.test.ts`) fail on the old code and
+  pass on the new.
+- A real sign-up over the Mac's Wi-Fi address stayed signed in across page loads, with exactly one
+  refresh per load in the database.
+
 ## Verification
 
 - **Quality gate** (`pnpm quality`): build, formatting, lint, typecheck, **311 unit and 144
