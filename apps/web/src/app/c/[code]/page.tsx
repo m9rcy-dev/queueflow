@@ -295,8 +295,8 @@ function CodeStep({
   return (
     <Card className="flex flex-col gap-4">
       <p className="text-sm text-text-secondary">
-        Enter the 6-digit code from your authenticator app, or the one we emailed to{" "}
-        <strong>{email}</strong>.
+        If <strong>{email}</strong> has an account here, we&apos;ve emailed it a 6-digit code. Using
+        an authenticator app? Enter its code instead.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <OtpCodeInput

@@ -8,6 +8,7 @@ import type { DeviceContextResponse, MembershipSummary } from "@queueflow/types"
 import { staffApi } from "../../../lib/staff-api-client";
 import { BusinessLogo } from "../../../components/BusinessLogo";
 import { QueueFlowLogo } from "../../../components/QueueFlowLogo";
+import { CustomerSignInHint } from "../../../components/CustomerSignInHint";
 
 type Step =
   | { name: "loading" }
@@ -321,6 +322,7 @@ function EmailStep({
           {submitting ? "Sending…" : "Send login code"}
         </Button>
       </form>
+      <CustomerSignInHint />
     </Card>
   );
 }
@@ -361,8 +363,8 @@ function CodeStep({
   return (
     <Card className="flex flex-col gap-4">
       <p className="text-sm text-text-secondary">
-        Enter the 6-digit code from your authenticator app, or the one we emailed to{" "}
-        <strong>{email}</strong>.
+        If <strong>{email}</strong> has a staff account, we&apos;ve emailed it a 6-digit code. Using
+        an authenticator app? Enter its code instead.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <OtpCodeInput
