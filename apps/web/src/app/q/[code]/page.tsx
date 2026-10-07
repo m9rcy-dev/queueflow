@@ -231,7 +231,7 @@ export default function CodeLandingPage() {
             placeholder="021 123 4567"
           />
           <Input
-            label="Email (optional)"
+            label="Email (recommended)"
             type="email"
             value={customerEmail}
             onChange={(e) => setCustomerEmail(e.target.value)}
@@ -239,7 +239,8 @@ export default function CodeLandingPage() {
             placeholder="you@example.com"
           />
           <p className="-mt-2 text-xs text-text-secondary">
-            We&apos;ll email your ticket link, so you can get back to it (and your QR code) anytime.
+            Add it to get a message when it&apos;s nearly your turn, plus your ticket and QR code to
+            keep.
           </p>
 
           {submitError && <p className="text-sm text-red-600">{submitError}</p>}

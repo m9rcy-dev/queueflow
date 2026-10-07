@@ -544,16 +544,21 @@ Service prices and commission are dropped for now.
 
 ### Phase 20 — First Deploy
 
-**Status: Not started**
+**Status: Done (2026-10-07)**. Ready to deploy. See `docs/status/phase-20.md`, ADR-019 and
+`docs/runbooks/deploy.md`.
 
-Lock CORS to the web app's origin (it still allows any origin); a `render.yaml` for the API (build,
-`prisma migrate deploy`, start, health check); documented Vercel settings for the monorepo web app;
-a deploy runbook (Neon, Render, Vercel, Pingram sender verification, every environment variable
-including `PLATFORM_ADMIN_EMAILS`, `WEB_APP_URL` and `API_PUBLIC_URL` (email links and QR
-images), DNS
-for `q.m9rcy.dev`, smoke-test checklist). When locking CORS, keep local phone testing working:
-allow any origin in development only (Phase 19's `scripts/dev.sh lan`). Hosting per ADR-009 unless the user decides otherwise. A
-business sign-up screen (today only the API offers it) belongs here at the latest.
+This phase was a release audit, with its fixes:
+
+- the API refuses to start in production with missing or unsafe settings;
+- CORS is locked to the web app;
+- the proxy is trusted so rate limits see real visitors;
+- the health check asks the database;
+- public business sign-up is off in production (businesses are onboarded at `/platform`);
+- Next.js 15 and React 19, taking dependency advisories from 53 to 2, neither reachable;
+- Node 22.
+
+It also added the deploy artifacts: `render.yaml`, `apps/web/vercel.json`, the deploy runbook,
+and `scripts/smoke.sh`.
 
 ---
 
@@ -590,6 +595,7 @@ start from nothing:
 
 ## Count, for reference
 
-**21 phases in the active roadmap (0–20)**: 0–19 done; 20 (first deploy) planned. Plus
+**21 phases in the active roadmap (0–20)**: all done; the first deploy follows
+`docs/runbooks/deploy.md`. Plus
 deferred workstreams tracked but not scheduled: analytics trends, billing, flash-crowd/waiting-room
 queuing, and platform admin _editing_ (the read-only console and onboarding shipped in Phase 19).

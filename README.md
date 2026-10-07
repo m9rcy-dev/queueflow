@@ -18,8 +18,9 @@ developer working on this repo. Read it before making changes.
 
 ## Stack
 
-NestJS + Prisma + PostgreSQL (API), Next.js (web), pnpm workspaces. Redis (Upstash) for realtime
-fan-out and rate limiting. See ADR-001 through ADR-010 for why.
+Node 22, NestJS + Prisma + PostgreSQL (API), Next.js 15 + React 19 (web), pnpm workspaces. Redis
+(Upstash) for realtime fan-out and rate limiting is planned for when there's more than one API
+instance; today it's a single instance (D-06). See the ADRs in `docs/adr/` for why.
 
 ## Local development
 
@@ -141,7 +142,19 @@ pnpm quality
 # = build && format:check && lint && typecheck && test && test:integration
 ```
 
-Must pass before any task is considered done — see `AGENTS.md` §6–7.
+Must pass before any task is considered done — see `AGENTS.md` §6–7. The web build goes to
+`apps/web/.next-build`, so it's safe to run while `pnpm dev` is running.
+
+## Deploying
+
+Vercel (web), Render (API), Neon (Postgres) and Pingram (email). Follow
+**`docs/runbooks/deploy.md`**; the `render.yaml` Blueprint and `apps/web/vercel.json` hold the
+build settings. In production the API refuses to start until every required setting is present
+and safe (ADR-019). After each deploy, run:
+
+```bash
+scripts/smoke.sh https://api.q.m9rcy.dev https://q.m9rcy.dev
+```
 
 ## Repository structure
 

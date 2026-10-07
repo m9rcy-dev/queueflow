@@ -1,10 +1,34 @@
 # Project Status
 
-Last Updated: 2026-10-05
-Current Phase: Phase 19 — Hours, Branding, Platform Admin & Local Email, done (see `docs/status/phase-19.md`)
-Current Task: Phase 20 — First Deploy
+Last Updated: 2026-10-07
+Current Phase: Phase 20 — First Deploy (release readiness), done (see `docs/status/phase-20.md`)
+Current Task: Deploy, following `docs/runbooks/deploy.md`
 
 ## Completed
+
+### Phase 20 — First Deploy (release readiness)
+
+A release audit, and the fixes for what it found:
+
+- the API refuses to start in production with missing or unsafe settings (development JWT
+  secret, http URLs, mock email);
+- CORS is locked to the web app;
+- Render's proxy is trusted, so rate limits see real visitors;
+- the health check asks the database;
+- public business sign-up is off in production;
+- Next.js 15.5 and React 19 (dependency advisories from 53 to 2, neither reachable);
+- Node 22;
+- `pnpm quality` no longer breaks `next dev`.
+
+It also added `render.yaml`, `apps/web/vercel.json`, `docs/runbooks/deploy.md` and
+`scripts/smoke.sh`. Verified by:
+
+- the quality gate (311 unit and 144 integration tests);
+- a production-mode build and a fresh-clone deploy dry run;
+- a 10-step business journey;
+- a browser pass with no console errors.
+
+ADR-019. Details: `docs/status/phase-20.md`.
 
 ### Phase 19 — Hours, Branding, Platform Admin & Local Email
 
@@ -177,9 +201,9 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 
 ## Known Issues
 
-- **Don't run `pnpm quality` while `pnpm dev` is running**: the web production build overwrites `.next` and the running dev server loses its styling (restart it with `pnpm dev`). Phase 17's hand-over picker, Manager and Staff menus, customer area pages and mobile drawer, and Phase 18's and 19's new screens, haven't been checked in a browser yet (see `docs/status/phase-17.md`, `phase-18.md` and `phase-19.md`).
-- **CORS still allows any origin** (`main.ts`) — must be locked to the web app's origin before deploying; scheduled in Phase 17. Managers may now edit their location; the login screen's "remember this device" can't pick a location for multi-location owners (Phase 16 — see `docs/status/phase-16.md`).
-- **`AUTHENTICATOR_ENCRYPTION_KEY` must be set before any production deploy** (Phase 15) — the API refuses to boot in production without it.
+- **Not yet seen on real hosting:** the deploy itself, phone-width layouts (the customer tab bar) and camera scanning on a phone, which needs HTTPS. All three are in the runbook's post-deploy checklist. The Phase 17–19 screens were checked in a browser in Phase 20 (see `docs/status/phase-20.md`).
+- **Free hosting plan (ADR-009):** the API sleeps after ~15 idle minutes (cold starts; reminders and no-shows pause meanwhile). Switch `render.yaml` to `plan: starter` before a real business relies on it. Managers may now edit their location; the login screen's "remember this device" can't pick a location for multi-location owners (Phase 16 — see `docs/status/phase-16.md`).
+- **Secrets:** never rotate `AUTHENTICATOR_ENCRYPTION_KEY`, because existing authenticator logins would break (emailed codes still work). Rotating `JWT_ACCESS_SECRET` signs everyone out. The production start-up checks require both (ADR-019).
 - Appointment link check-in doesn't prove physical presence; walk-in "nearly your turn" notifications catch up on the next queue change when a priority window opens, not on the minute (Phase 14 — see `docs/status/phase-14.md`).
 - Appointment booking page day chips start from the browser's today, not the location's; public booking has no per-phone throttle or future-booking cap (Phase 13 — see `docs/status/phase-13.md`).
 - `PROJECT_STATUS.md` itself is ~80KB despite AGENTS.md §8's cap — Phases 0–12's entries are long inline essays. Moving them into `docs/status/phase-NN.md` files (as Phase 13 does) is a worthwhile cleanup, not done here to keep this phase's diff focused.
@@ -196,17 +220,23 @@ See `docs/plan-review.md` (D-01–D-16) and `docs/adr/`. Additions made during i
 - Notification processing is fire-and-forget in-process, not a real background worker/queue — correct for MVP scale (ADR-008 describes "a background worker sends it," which this satisfies in spirit: never blocks the request), but a genuinely down/slow provider only gets retried on the _next_ queue mutation to the same entry, not on a timer. Revisit once Phase 8's real provider makes actual failures a real possibility, not just a simulated test.
 - The business-hours editor (Phase 11) supports exactly one open period per day — the common case, and full-replace semantics mean it can't represent (or safely preserve) a day a business already configured with two split periods via the raw API. That business would need to keep editing hours via the API, not the UI, until a future pass adds multi-period support.
 - Web Push (ADR-010's SMS-cost-offset idea for installed, signed-up customers) is not built — Phase 11 shipped PWA installability (manifest + a minimal same-origin-only service worker) but not actual push delivery, which needs VAPID keys, a subscription-storage endpoint, and wiring `NotificationsService` to a push-send library. Real, separate work; the phase's stated acceptance criterion only required installability.
-- **`pnpm audit` residual risk (Phase 12)**: Next.js 14.2.x has several moderate/high findings with no feature-flag off-switch (they're in React Server Components' core request handling, which every page uses) — patched only in the 15.5.x line. Not upgraded this phase: Next 14→15 is a major-version bump with a real breaking-change surface (React 19 requirement among them) that needs its own dedicated session, not a drive-by bump during a hardening pass. The one _critical_, concretely reachable finding (the `/_next/image` optimizer route, live by default despite the app never using `next/image`) **is** fixed — blocked outright in `middleware.ts`. Revisit the full upgrade before a real pilot if any of the remaining advisories turn out to have a reachable exploit path here (none currently does, per the triage in `docs/roadmap.md`'s Phase 12 writeup).
+- **`pnpm audit`, 2 advisories left (Phase 20), neither reachable:** a moderate one in NestJS core, fixed in NestJS 11 (a major upgrade with Express 5, planned after launch); and `deepmerge-ts` inside Prisma's command-line tool, which only reads Prisma's own config. Next.js is on 15.5.27, which clears the earlier Next 14 findings.
 - **No scheduled/automated backup job** — `docs/runbooks/backup-restore.md`'s procedure is manual, run on demand, and was proven to work (Phase 12) but isn't on a cron anywhere. Deliberately not built yet: there's no hosting provider chosen (ADR-009 leaves this open), and most providers' managed-backup features already have an opinion on where dumps land and how long they're kept — building bespoke scheduling before that's settled would likely need redoing.
 - Backup/restore (Phase 12) was exercised against local dev data, not a real pilot business's data, since there is no real pilot business yet. Re-run the same procedure once one exists, before calling backup/restore itself pilot-ready rather than just mechanism-proven.
 
 ## Next Task
 
-**Phase 20: First Deploy** (`docs/roadmap.md`). This covers:
+**Deploy.** The user runs it, following `docs/runbooks/deploy.md`:
 
-- locking CORS;
-- `render.yaml`, the Vercel settings and a deploy runbook, covering every environment variable,
-  including `PLATFORM_ADMIN_EMAILS`, `AUTHENTICATOR_ENCRYPTION_KEY` and the Pingram sender;
-- a business sign-up screen.
+1. Neon, Pingram, Render (Blueprint) and Vercel;
+2. DNS for `q.m9rcy.dev` and `api.q.m9rcy.dev`;
+3. `scripts/smoke.sh`, then the manual checklist.
 
-The stacked branches (13 → 19) still need merging into `main`, in order, when the user asks.
+It needs `main` on GitHub. Merge `feature/QF-020-first-deploy` into `main` when the user agrees.
+
+**After launch, candidates:**
+
+- **Real SMS:** needs a provider account and per-business cost limits.
+- **The NestJS 11 upgrade.**
+- **The always-on hosting plan**, before real trading-hours use.
+- **Consent text and legal copy (G-48):** needed before a real business's customers use it.

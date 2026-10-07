@@ -1,0 +1,56 @@
+# Render Blueprint for the QueueFlow API (Phase 20, ADR-009). The web app is
+# on Vercel and the database on Neon — see docs/runbooks/deploy.md.
+#
+# Secrets marked `sync: false` are entered in the Render dashboard when the
+# Blueprint is first applied; they are never stored in this file.
+services:
+  - type: web
+    name: queueflow-api
+    runtime: node
+    # Free, deliberately, for the hobby phase (ADR-009): the instance sleeps
+    # after ~15 idle minutes (≈30s cold start; scheduled no-shows/reminders
+    # pause while asleep). Switch to `starter` (always on) before a real
+    # business depends on it during trading hours.
+    plan: free
+    # Closest Render region to New Zealand. Put the Neon database in AWS
+    # ap-southeast-1 (Singapore) too, so every query isn't a round trip away.
+    region: singapore
+    # ONE instance only: live updates (SSE) and scheduled jobs run in-process
+    # (D-06) — a second instance would split them.
+    numInstances: 1
+    buildCommand: >-
+      corepack enable &&
+      pnpm install --frozen-lockfile --prod=false &&
+      pnpm --filter "@queueflow/api..." build
+    # Migrations run before the server starts on every deploy (the free plan
+    # has no separate pre-deploy step); `migrate deploy` only applies new ones.
+    startCommand: >-
+      pnpm --filter @queueflow/api exec prisma migrate deploy &&
+      node apps/api/dist/src/main.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # Neon: the direct (non-pooled) connection string, ?sslmode=require
+      - key: JWT_ACCESS_SECRET
+        generateValue: true # random 256-bit, generated once by Render
+      - key: AUTHENTICATOR_ENCRYPTION_KEY
+        generateValue: true # random 256-bit base64 = the 32 bytes required
+      - key: WEB_APP_URL
+        sync: false # e.g. https://q.m9rcy.dev
+      - key: API_PUBLIC_URL
+        sync: false # e.g. https://api.q.m9rcy.dev
+      - key: EMAIL_PROVIDER
+        value: pingram
+      - key: PINGRAM_API_KEY
+        sync: false
+      - key: PINGRAM_REGION
+        value: us
+      - key: PINGRAM_FROM_EMAIL
+        sync: false # e.g. noreply@q.m9rcy.dev (verified in Pingram)
+      - key: SMS_PROVIDER
+        value: mock # no real SMS yet — notifications go by email
+      - key: PLATFORM_ADMIN_EMAILS
+        sync: false # who can sign in at /platform

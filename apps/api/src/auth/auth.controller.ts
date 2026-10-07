@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -43,6 +44,7 @@ import { AuthenticatorService } from "../authenticator/authenticator.service";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./current-user.decorator";
 import { Public } from "./public.decorator";
+import { businessSignupEnabled } from "../config/production-config";
 import type { RequestUser } from "./request-user.interface";
 
 @Controller("auth")
@@ -58,6 +60,12 @@ export class AuthController {
   async signUpBusiness(
     @Body(new ZodValidationPipe(businessSignupSchema)) body: BusinessSignupInput,
   ): Promise<{ message: string }> {
+    // Phase 20: off in production unless BUSINESS_SIGNUP_ENABLED=true —
+    // businesses are onboarded by a platform admin (/platform). Same answer
+    // as a route that doesn't exist.
+    if (!businessSignupEnabled(process.env)) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Not found." });
+    }
     await this.authService.signUpBusiness(body);
     return { message: "Check your email for a login code to finish setting up your business." };
   }

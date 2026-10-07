@@ -2,10 +2,10 @@
   "name": "queueflow",
   "private": true,
   "version": "0.0.0",
-  "description": "QueueFlow monorepo — web and API.",
+  "description": "QueueFlow monorepo \u2014 web and API.",
   "packageManager": "pnpm@10.30.3",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "format": "prettier --write .",
@@ -15,7 +15,7 @@
     "test": "pnpm -r --if-present run test",
     "test:integration": "pnpm -r --if-present run test:integration",
     "build": "pnpm -r --if-present run build",
-    "quality": "pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration",
+    "quality": "NEXT_DIST_DIR=.next-build pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration",
     "db:migrate": "pnpm --filter @queueflow/api run db:migrate",
     "dev": "bash scripts/dev.sh restart",
     "dev:start": "bash scripts/dev.sh start",
@@ -32,7 +32,16 @@
       "prisma",
       "protobufjs",
       "ssh2"
-    ]
+    ],
+    "overrides": {
+      "lodash": "^4.18.1",
+      "qs": "^6.16.0",
+      "body-parser": "^1.20.8",
+      "multer": "^2.4.0",
+      "file-type": "^21.3.4",
+      "uuid": "^11.1.1",
+      "postcss": "^8.5.29"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
